@@ -145,7 +145,9 @@ Do NOT implement complex rotation now.
 
 ## Task Log (Newest first)
 
-- 2026-04-18 Car-pool V1 foundation delivery: merged app-starter base, configured app identity (car-pool / Car Pool), implemented Astro DB schema (4 tables: Group, Member, WorkingDay, Trip), wrote 12 core server actions using Astro 5 defineAction API, built Alpine store with group/member/trip/working-day operations, created main /app page with 4-tab UI (Overview/Members/Schedule/Trips), locked simple rotation logic (deterministic driver suggestion), enforced strict permissions (trip ownership, group creator control, membership validation), ran full build and verified typecheck/build green. Verification: `npm run build --remote` ✅ (complete), typecheck hints only (Astro DB schema quirks, no functional blocks), page interactive with Alpine store bindings, all routes auth-protected, server actions properly sealed. Ready for manual/cross-user testing when paired with parent app.
+- 2026-04-18 (b) Error handling fix: Added try-catch wrapper around `server.loadUserGroups()` call in `/app` index page to prevent unhandled 500 errors. Added loadError state and user-facing error alert. Graceful degradation if action fails. Build verified green. Commit: ac77f7d.
+
+- 2026-04-18 (a) Car-pool V1 foundation delivery: merged app-starter base, configured app identity (car-pool / Car Pool), implemented Astro DB schema (4 tables: Group, Member, WorkingDay, Trip), wrote 12 core server actions using Astro 5 defineAction API, built Alpine store with group/member/trip/working-day operations, created main /app page with 4-tab UI (Overview/Members/Schedule/Trips), locked simple rotation logic (deterministic driver suggestion), enforced strict permissions (trip ownership, group creator control, membership validation), ran full build and verified typecheck/build green. Verification: `npm run build --remote` ✅ (complete), typecheck hints only (Astro DB schema quirks, no functional blocks), page interactive with Alpine store bindings, all routes auth-protected, server actions properly sealed. Ready for manual/cross-user testing when paired with parent app.
 
 ---
 
