@@ -3,18 +3,28 @@ import AppShell from "../../layouts/AppShell.astro";
 import { server } from "../../actions";
 
 // Load initial data server-side
-const groups = await server.loadUserGroups();
-const selectedGroup = groups.groups && groups.groups.length > 0 ? groups.groups[0] : null;
+let groups = { groups: [] };
+let selectedGroup = null;
 let groupDetail = null;
 let tripHistory = null;
+let loadError = null;
 
-if (selectedGroup) {
-  try {
-    groupDetail = await server.loadGroupDetail({ groupId: selectedGroup.id });
-    tripHistory = await server.listTripHistory({ groupId: selectedGroup.id, limit: 10 });
-  } catch (e) {
-    console.error("Error loading group detail:", e);
+try {
+  const result = await server.loadUserGroups();
+  groups = result || { groups: [] };
+  selectedGroup = groups.groups && groups.groups.length > 0 ? groups.groups[0] : null;
+
+  if (selectedGroup) {
+    try {
+      groupDetail = await server.loadGroupDetail({ groupId: selectedGroup.id });
+      tripHistory = await server.listTripHistory({ groupId: selectedGroup.id, limit: 10 });
+    } catch (e) {
+      console.error("Error loading group detail:", e);
+    }
   }
+} catch (e) {
+  console.error("Error loading user groups:", e);
+  loadError = e instanceof Error ? e.message : String(e);
 }
 
 // Helper to format date
@@ -32,6 +42,15 @@ function formatDate(date: Date | string): string {
         <h1 class="text-4xl font-bold text-slate-900">Car Pool</h1>
         <p class="text-lg text-slate-600 mt-2">Shared group rotation management</p>
       </div>
+
+      <!-- Error Alert -->
+      {loadError && (
+        <div class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <h3 class="text-red-900 font-semibold mb-1">Error Loading Groups</h3>
+          <p class="text-red-800 text-sm">{loadError}</p>
+          <p class="text-red-700 text-xs mt-2">Please try refreshing or contacting support if the issue persists.</p>
+        </div>
+      )}
 
       <!-- Main Container with Alpine Store -->
       <div
