@@ -1,0 +1,11 @@
+---
+import { buildRootRedirect, getSafeReturnTo } from "../lib/redirects";
+
+return Astro.redirect(
+  buildRootRedirect(
+    Astro.locals.rootAppUrl ?? "https://ansiversa.com",
+    "/login",
+    getSafeReturnTo(Astro.url.searchParams.get("returnTo"), new URL("/app", Astro.url).toString()),
+  ),
+);
+---

@@ -1,0 +1,34 @@
+---
+import { AvBreadcrumb, AvContainer } from "@ansiversa/components";
+import AppShell from "./AppShell.astro";
+
+interface CrumbItem {
+  label: string;
+  href?: string;
+}
+
+interface Props {
+  title: string;
+  description?: string;
+  crumbItems: CrumbItem[];
+}
+
+const { title, description, crumbItems } = Astro.props as Props;
+---
+
+<AppShell title={title} description={description}>
+  <section class="av-admin-section">
+    <AvContainer size="default">
+      <div class="av-auth-stack-md">
+        <div class="av-admin-crumbwrap">
+          <AvBreadcrumb items={crumbItems} />
+        </div>
+
+        <div class="av-auth-stack-lg">
+          <slot name="toolbar" />
+          <slot />
+        </div>
+      </div>
+    </AvContainer>
+  </section>
+</AppShell>

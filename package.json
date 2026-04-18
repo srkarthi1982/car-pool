@@ -1,0 +1,37 @@
+{
+  "name": "@ansiversa/car-pool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --remote",
+    "dev:local": "astro dev",
+    "build": "astro build --remote",
+    "build:local": "astro build",
+    "typecheck": "astro check",
+    "typecheck:tsc": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "build:remote": "astro build --remote",
+    "dev:remote": "astro dev --remote",
+    "db:push": "astro db push --remote"
+  },
+  "dependencies": {
+    "@ansiversa/components": "^0.0.169",
+    "@astrojs/alpinejs": "^0.4.9",
+    "@astrojs/db": "^0.18.3",
+    "@astrojs/vercel": "^9.0.2",
+    "@tailwindcss/vite": "^4.1.17",
+    "@types/alpinejs": "^3.13.11",
+    "alpinejs": "^3.15.2",
+    "astro": "^5.16.2",
+    "tailwindcss": "^4.1.17"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.6",
+    "@libsql/client": "^0.17.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

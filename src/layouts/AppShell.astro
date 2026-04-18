@@ -1,0 +1,85 @@
+---
+import "@ansiversa/components/styles/global.css";
+import "../styles/global.css";
+import { WebLayout as AvWebLayout } from "@ansiversa/components";
+import { SESSION_COOKIE_NAME, verifySessionToken } from "../lib/auth";
+import AppMiniAppBar from "../components/AppMiniAppBar.astro";
+import { APP_META } from "../app.meta";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const props = Astro.props as Props;
+const locals = Astro.locals as {
+  isAuthenticated?: boolean;
+  rootAppUrl?: string;
+  sessionToken?: string | null;
+  user?: {
+    id: string;
+    email: string;
+    name?: string;
+    roleId?: number;
+    stripeCustomerId: string | null;
+    plan: string | null;
+    planStatus: string | null;
+    isPaid: boolean;
+    renewalAt: number | null;
+  };
+};
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? "";
+const existingToken = locals?.sessionToken ?? Astro.cookies.get(SESSION_COOKIE_NAME)?.value;
+const sessionToken = existingToken ?? null;
+
+const sessionPayload = sessionToken ? verifySessionToken(sessionToken) : null;
+const user = locals?.user ??
+  (sessionPayload?.userId
+    ? {
+        id: sessionPayload.userId,
+        email: sessionPayload.email,
+        name: sessionPayload.name,
+        roleId: sessionPayload.roleId ? Number(sessionPayload.roleId) : undefined,
+        stripeCustomerId: sessionPayload.stripeCustomerId ?? null,
+        plan: sessionPayload.plan ?? null,
+        planStatus: sessionPayload.planStatus ?? null,
+        isPaid: sessionPayload.isPaid === true,
+        renewalAt: sessionPayload.renewalAt ?? null,
+      }
+    : undefined);
+
+if (user) {
+  locals.user = user;
+}
+
+let notificationUnreadCount = 0;
+if (cookieHeader && (locals?.isAuthenticated || user)) {
+  try {
+    const response = await fetch(new URL("/api/notifications/unread-count", Astro.url), {
+      headers: {
+        cookie: cookieHeader,
+      },
+    });
+    if (response.ok) {
+      const data = await response.json();
+      notificationUnreadCount = Number(data?.count ?? 0);
+    }
+  } catch {
+    notificationUnreadCount = 0;
+  }
+}
+
+const miniAppLinks = [
+  { label: "Home", href: "/" },
+  { label: "App", href: "/app" },
+];
+---
+
+<AvWebLayout
+  {...props}
+  notificationUnreadCount={notificationUnreadCount}
+>
+  <AppMiniAppBar appKey={APP_META.key} appName={APP_META.name} links={miniAppLinks} />
+  <slot />
+</AvWebLayout>

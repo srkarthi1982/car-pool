@@ -1,0 +1,39 @@
+/* Drawer UX scaffold hooks (App-Starter baseline). */
+.drawer-body-scroll,
+.av-drawer-body-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.drawer-flex-scroll,
+.av-drawer-flex-scroll {
+  min-height: 0;
+}
+
+.drawer-footer-notice,
+.av-drawer-footer-notice {
+  min-height: 1.25rem;
+}
+
+.av-drawer-footer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.av-drawer-footer-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+@media (max-width: 640px) {
+  .av-drawer-footer-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .av-drawer-footer-actions :where(button, a) {
+    width: 100%;
+  }
+}

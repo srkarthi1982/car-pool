@@ -1,0 +1,86 @@
+---
+import { AppLogo } from "@ansiversa/components";
+
+interface LinkItem {
+  label: string;
+  href: string;
+}
+
+interface Props {
+  appKey: string;
+  appName?: string;
+  links?: LinkItem[];
+}
+
+const { appKey, appName, links } = Astro.props as Props;
+
+const normalizedAppKey = typeof appKey === "string" ? appKey.trim() : "";
+const normalizedAppName = typeof appName === "string" ? appName.trim() : "";
+const resolvedAppName = normalizedAppName || normalizedAppKey || "App";
+const menuLinks: LinkItem[] = links?.length ? links : [{ label: "Home", href: "/" }];
+const homeHref = menuLinks[0]?.href ?? "/";
+---
+
+<div class="av-mini-app-bar">
+  <div class="av-mini-app-bar__inner">
+    <div class="av-mini-app-bar__title">
+      <a
+        href={homeHref}
+        class="av-mini-app-bar__title-link"
+        title={resolvedAppName}
+        aria-label={`Go to ${resolvedAppName} home`}
+      >
+        <span class="av-mini-app-bar__name flex items-center gap-2">
+          {normalizedAppKey && <AppLogo appId={normalizedAppKey} size="sm" />}
+          <span class="truncate">{resolvedAppName}</span>
+        </span>
+      </a>
+    </div>
+
+    <div class="av-mini-app-bar__menu" x-data="{ open: false }">
+      <button
+        type="button"
+        class="av-mini-app-bar__menu-button"
+        aria-label="Open app menu"
+        aria-haspopup="menu"
+        x-on:click="open = !open"
+        x-bind:aria-expanded="open"
+      >
+        <svg
+          class="av-mini-app-bar__menu-icon"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="5" r="1.5" />
+          <circle cx="12" cy="12" r="1.5" />
+          <circle cx="12" cy="19" r="1.5" />
+        </svg>
+      </button>
+
+      <div
+        x-show="open"
+        x-cloak
+        x-transition.origin.top.right
+        x-on:click.outside="open = false"
+        class="av-user-menu av-mini-app-menu"
+        role="menu"
+        aria-label={`${resolvedAppName} menu`}
+      >
+        <div class="av-nav-user-menu">
+          {menuLinks.map((item: LinkItem) => (
+            <a href={item.href} class="av-dropdown-item" role="menuitem">
+              <span>{item.label}</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
