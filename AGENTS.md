@@ -187,9 +187,9 @@ Do NOT implement complex rotation now.
 
 ## Git Status
 
-- Commit hash: (will update after commit)
+- Commit hash: `2596e9f7e042a0b465bf49dcadad0f396e82bab1`
 - Commit message: `feat(car-pool): implement simple rotation shared-group v1 foundation`
-- All files staged and ready for push to `origin/main`
+- Pushed to `origin/main` ✅
 ⚠️ Mandatory: AI agents must read this file before writing or modifying any code.
 
 MANDATORY: After completing each task, update this repo’s AGENTS.md Task Log (newest-first) before marking the task done.
