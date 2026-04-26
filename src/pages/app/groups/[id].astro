@@ -17,7 +17,8 @@ let groupDetail = null;
 let loadError = null;
 
 try {
-  groupDetail = await server.loadGroupDetail({ groupId: id });
+  const result = await Astro.callAction(server.loadGroupDetail, { groupId: id });
+  groupDetail = result?.group ? { group: result.group, members: result.members } : null;
 } catch (e) {
   console.error("Error loading group detail:", e);
   loadError = e instanceof Error ? e.message : String(e);

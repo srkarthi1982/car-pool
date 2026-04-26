@@ -6,7 +6,8 @@ import { server } from "../../actions";
 let groups = { groups: [] };
 
 try {
-  groups = await server.loadUserGroups() || { groups: [] };
+  const result = await Astro.callAction(server.loadUserGroups, {});
+  groups = result?.groups || { groups: [] };
 } catch (e) {
   console.error("Error loading user groups:", e);
 }

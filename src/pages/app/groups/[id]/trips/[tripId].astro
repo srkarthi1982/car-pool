@@ -12,7 +12,8 @@ let tripDetail = null;
 let loadError = null;
 
 try {
-  tripDetail = await server.loadTripDetail({ tripId });
+  const result = await Astro.callAction(server.loadTripDetail, { tripId });
+  tripDetail = result?.trip ? { trip: result.trip, participants: result.participants || [] } : null;
 } catch (e) {
   console.error("Error loading trip detail:", e);
   loadError = e instanceof Error ? e.message : String(e);

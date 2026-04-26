@@ -12,7 +12,8 @@ let tripHistory = { trips: [] };
 let loadError = null;
 
 try {
-  tripHistory = await server.listTripHistory({ groupId: id }) || { trips: [] };
+  const result = await Astro.callAction(server.listTripHistory, { groupId: id });
+  tripHistory = result?.trips || { trips: [] };
 } catch (e) {
   console.error("Error loading trip history:", e);
   loadError = e instanceof Error ? e.message : String(e);
