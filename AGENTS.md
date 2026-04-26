@@ -145,6 +145,8 @@ Do NOT implement complex rotation now.
 
 ## Task Log (Newest first)
 
+- 2026-04-26 (e): UI standard correction for `/app` workspace. Removed malformed trailing page markup from `/app/index.astro`, ensuring clean group list layout and consistent Ansiversa workspace presentation. Verified proper `AppShell` use, drawer patterns, cards, and vertical section structure on `/app/groups/[id].astro`. Build passed cleanly. 
+
 - 2026-04-26 (d): **SELF-VERIFICATION PASS** - Ran full health check and code audit against V1.1 spec. STATIC CHECKS: typecheck ✅ (suppressed type hints with `as any` casts for Astro DB table typing), build ✅ (completes without errors), db:push ✅ (schema up to date). SPEC COMPLIANCE: All 5 routes implemented ✅, all 4 tables correct with exact columns ✅, group creation ✅, member management ✅, rotation algorithm ✅, attendance handling ✅, trip creation ✅, fairness tracking ✅, missed ride logic ✅, duplicate prevention ✅, archive support ✅, ownership safety ✅. CODE QUALITY: Fixed 10 uncast database table references in actions (added `as any` for table type safety), verified 100% spec alignment. No logic bugs found. Implementation matches spec exactly. Ready for runtime testing and user verification.
 
 - 2026-04-26 (c): Implemented Car Pool V1 exactly as per engineering-grade spec V1.1. Updated database schema with 4 tables (CarPoolGroups, CarPoolMembers, CarPoolTrips, CarPoolTripParticipants), implemented deterministic rotation engine, fairness tracking with driveCount/rideCount/absenceCount/missedRideCount, trip logging with participant roles, validation rules, and UI routes (/app, /app/groups/[id], /app/groups/[id]/trips, /app/groups/[id]/trips/[tripId]). Database pushed, build successful. Ready for runtime verification.
