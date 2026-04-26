@@ -1,0 +1,400 @@
+---
+import AppShell from "../../../layouts/AppShell.astro";
+import { server } from "../../../actions";
+
+export async function getStaticPaths() {
+  // For SSR, we'll handle this dynamically
+  return [];
+}
+
+const { id } = Astro.params;
+if (!id) {
+  throw new Error("Group ID is required");
+}
+
+// Load group data server-side
+let groupDetail = null;
+let loadError = null;
+
+try {
+  groupDetail = await server.loadGroupDetail({ groupId: id });
+} catch (e) {
+  console.error("Error loading group detail:", e);
+  loadError = e instanceof Error ? e.message : String(e);
+}
+
+// Helper to format date
+function formatDate(date: Date | string): string {
+  const d = new Date(date);
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+---
+
+<AppShell>
+  <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div class="container max-w-4xl mx-auto px-4 py-8 md:py-12">
+      <!-- Header -->
+      <div class="mb-8">
+        <div class="flex items-center justify-between">
+          <div>
+            <button
+              onclick="history.back()"
+              class="text-blue-600 hover:text-blue-700 font-medium mb-2 inline-flex items-center"
+            >
+              ← Back to Groups
+            </button>
+            <h1 class="text-4xl font-bold text-slate-900" x-show="selectedGroupDetail.group" x-text="selectedGroupDetail.group?.name || 'Group Dashboard'"></h1>
+            <p class="text-lg text-slate-600 mt-2">Manage your car pool group and trips</p>
+          </div>
+          <div class="flex space-x-3">
+            <button
+              @click="openAddMembersDrawer()"
+              class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition"
+            >
+              + Add Members
+            </button>
+            <button
+              @click="openCreateTripDrawer()"
+              class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition"
+            >
+              Log Trip
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error Alert -->
+      {loadError && (
+        <div class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <h3 class="text-red-900 font-semibold mb-1">Error Loading Group</h3>
+          <p class="text-red-800 text-sm">{loadError}</p>
+        </div>
+      )}
+
+      <!-- Main Container with Alpine Store -->
+      <div
+        x-data="Object.assign($store.carPoolApp, {
+          init() {
+            this.selectedGroupId = '{id}';
+            this.selectedGroupDetail = {groupDetail};
+            this.currentView = 'group-dashboard';
+          }
+        })"
+        x-effect="init()"
+        class="space-y-6"
+      >
+        <!-- Loading State -->
+        <template x-if="isLoading && !selectedGroupDetail.group">
+          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p class="text-slate-600">Loading group...</p>
+          </div>
+        </template>
+
+        <!-- Group Content -->
+        <template x-if="selectedGroupDetail.group">
+          <div class="grid gap-6 lg:grid-cols-3">
+            <!-- Main Content -->
+            <div class="lg:col-span-2 space-y-6">
+              <!-- Today's Driver Card -->
+              <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h3 class="text-lg font-semibold text-slate-900 mb-4">Today's Driver</h3>
+                <template x-if="getTodaysDriver()">
+                  <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                      <span class="text-blue-600 font-semibold text-lg" x-text="getTodaysDriver().name.charAt(0).toUpperCase()"></span>
+                    </div>
+                    <div>
+                      <p class="font-medium text-slate-900" x-text="getTodaysDriver().name"></p>
+                      <p class="text-sm text-slate-600">Fairness score: <span x-text="getTodaysDriver().fairness?.fairnessScore || 0"></span></p>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="!getTodaysDriver()">
+                  <p class="text-slate-600">No active members</p>
+                </template>
+              </div>
+
+              <!-- Next Drivers Preview -->
+              <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h3 class="text-lg font-semibold text-slate-900 mb-4">Next Drivers</h3>
+                <div class="space-y-3">
+                  <template x-for="(driver, index) in getNextDrivers(3)" :key="index">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
+                          <span class="text-slate-600 font-medium text-sm" x-text="driver.name.charAt(0).toUpperCase()"></span>
+                        </div>
+                        <span class="text-slate-700" x-text="driver.name"></span>
+                      </div>
+                      <span class="text-sm text-slate-500" x-text="formatDate(new Date(Date.now() + (index + 1) * 24 * 60 * 60 * 1000))"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Recent Trips -->
+              <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="text-lg font-semibold text-slate-900">Recent Trips</h3>
+                  <button
+                    @click="navigateToTripHistory()"
+                    class="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                  >
+                    View All →
+                  </button>
+                </div>
+                <p class="text-slate-600">Trip history will appear here</p>
+              </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+              <!-- Members List -->
+              <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h3 class="text-lg font-semibold text-slate-900 mb-4">Members</h3>
+                <div class="space-y-3">
+                  <template x-for="member in selectedGroupDetail.members" :key="member.id">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                          <span class="text-blue-600 font-medium text-sm" x-text="member.name.charAt(0).toUpperCase()"></span>
+                        </div>
+                        <div>
+                          <p class="text-slate-900 font-medium" x-text="member.name"></p>
+                          <p class="text-xs text-slate-600">
+                            Drives: <span x-text="member.fairness?.driveCount || 0"></span> |
+                            Rides: <span x-text="member.fairness?.rideCount || 0"></span>
+                          </p>
+                        </div>
+                      </div>
+                      <div class="text-right">
+                        <div class="text-sm font-medium" :class="member.fairness?.fairnessScore >= 0 ? 'text-green-600' : 'text-red-600'" x-text="member.fairness?.fairnessScore || 0"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Fairness Overview -->
+              <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h3 class="text-lg font-semibold text-slate-900 mb-4">Fairness Overview</h3>
+                <div class="space-y-2">
+                  <template x-for="member in selectedGroupDetail.members" :key="member.id">
+                    <div class="flex items-center justify-between">
+                      <span class="text-sm text-slate-700 truncate" x-text="member.name"></span>
+                      <div class="flex items-center space-x-2">
+                        <div class="w-16 bg-slate-200 rounded-full h-2">
+                          <div
+                            class="bg-blue-600 h-2 rounded-full"
+                            :style="`width: ${Math.min(100, Math.max(0, 50 + (member.fairness?.fairnessScore || 0)))}%`"
+                          ></div>
+                        </div>
+                        <span class="text-xs text-slate-600 w-8 text-right" x-text="member.fairness?.fairnessScore || 0"></span>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Error State -->
+        <template x-if="error && !isLoading">
+          <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+            <h3 class="text-red-900 font-semibold mb-1">Error</h3>
+            <p class="text-red-800 text-sm" x-text="error"></p>
+          </div>
+        </template>
+      </div>
+
+      <!-- Add Members Drawer -->
+      <div
+        x-show="showAddMembersDrawer"
+        x-transition
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+        @click.self="closeAddMembersDrawer()"
+      >
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+          <h3 class="text-lg font-semibold text-slate-900 mb-4">Add Members</h3>
+
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Search and Add Members</label>
+              <p class="text-xs text-slate-600 mb-3">Note: In this demo, you can add fictional members. In production, this would search existing platform users.</p>
+              <input
+                type="text"
+                placeholder="Enter member name"
+                @keydown.enter="if ($event.target.value.trim()) { addMemberToForm('user_' + Date.now(), $event.target.value.trim()); $event.target.value = ''; }"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            <div x-show="addMembersForm.members.length > 0">
+              <h4 class="text-sm font-medium text-slate-700 mb-2">Members to Add:</h4>
+              <div class="space-y-2 max-h-32 overflow-y-auto">
+                <template x-for="(member, index) in addMembersForm.members" :key="index">
+                  <div class="flex items-center justify-between bg-slate-50 px-3 py-2 rounded">
+                    <span class="text-sm text-slate-700" x-text="member.name"></span>
+                    <button
+                      @click="removeMemberFromForm(index)"
+                      class="text-red-600 hover:text-red-700 text-sm"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end space-x-3 mt-6">
+            <button
+              type="button"
+              @click="closeAddMembersDrawer()"
+              class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+            >
+              Cancel
+            </button>
+            <button
+              @click="submitAddMembers()"
+              :disabled="isLoading || addMembersForm.members.length === 0"
+              class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
+            >
+              <span x-show="!isLoading">Add Members</span>
+              <span x-show="isLoading">Adding...</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Create Trip Drawer -->
+      <div
+        x-show="showCreateTripDrawer"
+        x-transition
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+        @click.self="closeCreateTripDrawer()"
+      >
+        <div class="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4 p-6">
+          <h3 class="text-lg font-semibold text-slate-900 mb-4">Log Trip</h3>
+
+          <form @submit.prevent="submitCreateTrip()">
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Trip Date</label>
+                <input
+                  type="date"
+                  x-model="createTripForm.tripDate"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">Actual Driver</label>
+                <select
+                  x-model="createTripForm.actualDriverId"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                >
+                  <option value="">Select driver</option>
+                  <template x-for="member in selectedGroupDetail.members" :key="member.id">
+                    <option :value="member.id" x-text="member.name"></option>
+                  </template>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">Passengers</label>
+                <div class="space-y-2 max-h-32 overflow-y-auto border border-slate-300 rounded-lg p-3">
+                  <template x-for="member in selectedGroupDetail.members" :key="member.id">
+                    <label class="flex items-center">
+                      <input
+                        type="checkbox"
+                        :value="member.id"
+                        x-model="createTripForm.passengers"
+                        class="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        :disabled="member.id === createTripForm.actualDriverId"
+                      />
+                      <span class="ml-2 text-sm text-slate-700" x-text="member.name"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">Absentees</label>
+                <div class="space-y-2 max-h-32 overflow-y-auto border border-slate-300 rounded-lg p-3">
+                  <template x-for="member in selectedGroupDetail.members" :key="member.id">
+                    <label class="flex items-center">
+                      <input
+                        type="checkbox"
+                        :value="member.id"
+                        x-model="createTripForm.absentees"
+                        class="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        :disabled="createTripForm.passengers.includes(member.id)"
+                      />
+                      <span class="ml-2 text-sm text-slate-700" x-text="member.name"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-1">Petrol Amount</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    x-model="createTripForm.petrolAmount"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-1">Toll Amount</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    x-model="createTripForm.tollAmount"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+                <textarea
+                  x-model="createTripForm.notes"
+                  rows="3"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Optional notes about the trip"
+                ></textarea>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 mt-6">
+              <button
+                type="button"
+                @click="closeCreateTripDrawer()"
+                class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                :disabled="isLoading"
+                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
+              >
+                <span x-show="!isLoading">Log Trip</span>
+                <span x-show="isLoading">Logging...</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</AppShell>

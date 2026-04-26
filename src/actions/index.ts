@@ -1,65 +1,65 @@
 import { defineAction } from "astro:actions";
-import { db, eq, and } from "astro:db";
+import { db, eq, and, desc, sql } from "astro:db";
 import { z } from "astro:schema";
 import { requireUser } from "./_guards";
-import { CarPoolGroups, CarPoolGroupMembers, CarPoolWorkingDays, CarPoolTrips } from "../../db/tables";
+import { CarPoolGroups, CarPoolMembers, CarPoolTrips, CarPoolTripParticipants } from "../../db/tables";
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 
 function generateId(): string {
-  // Simple ID generation using timestamp + random number
-  // Works server-side only
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// Simple rotation: get the suggested driver for a given date
-async function getSuggestedDriverForGroupDate(
-  groupId: string,
-  tripDate: Date
-): Promise<string | null> {
-  const groupResults = await db.select().from(CarPoolGroups).where(eq(CarPoolGroups.id, groupId));
-  if (!groupResults || groupResults.length === 0) return null;
-
-  const group = groupResults[0];
-
-  // Get active members ordered by sortOrder
-  const members = await db
+// Get active members for a group
+async function getActiveMembers(groupId: string) {
+  return await db
     .select()
-    .from(CarPoolGroupMembers)
-    .where(and(eq(CarPoolGroupMembers.groupId, groupId), eq(CarPoolGroupMembers.isActive, true)));
+    .from(CarPoolMembers as any)
+    .where(and(eq((CarPoolMembers as any).groupId, groupId), eq((CarPoolMembers as any).isActive, true)))
+    .orderBy((CarPoolMembers as any).rotationOrder);
+}
 
-  const sortedMembers = members.sort((a, b) => a.sortOrder - b.sortOrder);
+// Get suggested driver for a date
+async function getSuggestedDriverForDate(groupId: string, tripDate: Date): Promise<string | null> {
+  const members = await getActiveMembers(groupId);
+  if (members.length === 0) return null;
 
-  if (sortedMembers.length === 0) return null;
+  // For simplicity, use a deterministic rotation based on date
+  // In a real implementation, this could be more sophisticated
+  const dateStr = tripDate.toISOString().split('T')[0];
+  const hash = dateStr.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+  const index = hash % members.length;
+  return members[index].userId;
+}
 
-  // Get working days for the group
-  const workingDaysRecords = await db
+// Calculate fairness for a member
+async function calculateMemberFairness(memberId: string) {
+  const participations = await db
     .select()
-    .from(CarPoolWorkingDays)
-    .where(eq(CarPoolWorkingDays.groupId, groupId));
+    .from(CarPoolTripParticipants as any)
+    .where(eq((CarPoolTripParticipants as any).memberId, memberId));
 
-  const workingDaysOfWeek = new Set(workingDaysRecords.map((d) => d.dayOfWeek));
+  let driveCount = 0;
+  let rideCount = 0;
+  let absenceCount = 0;
+  let missedRideCount = 0;
 
-  // Count working days from start date to target date
-  const startDate = new Date(group.startDate);
-  let currentDate = new Date(startDate);
-  let workingDayCount = 0;
-
-  while (currentDate <= tripDate) {
-    const dayOfWeek = currentDate.getDay();
-    if (workingDaysOfWeek.size === 0 || workingDaysOfWeek.has(dayOfWeek)) {
-      if (currentDate.getTime() < tripDate.getTime()) {
-        workingDayCount++;
-      }
-    }
-    currentDate.setDate(currentDate.getDate() + 1);
+  for (const p of participations) {
+    if (p.role === 'driver') driveCount++;
+    if (p.role === 'passenger') rideCount++;
+    if (p.attendanceStatus === 'absent') absenceCount++;
+    if (p.missedRide) missedRideCount++;
   }
 
-  // Get the driver index (simple rotation)
-  const driverIndex = workingDayCount % sortedMembers.length;
-  return sortedMembers[driverIndex].userId;
+  return {
+    driveCount,
+    rideCount,
+    absenceCount,
+    missedRideCount,
+    fairnessScore: driveCount - rideCount
+  };
 }
 
 // ============================================================================
@@ -67,96 +67,142 @@ async function getSuggestedDriverForGroupDate(
 // ============================================================================
 
 export const server = {
-  // Group actions
+  // Create a new group
   createGroup: defineAction({
     input: z.object({
       name: z.string().min(1),
-      rotationType: z.enum(["simple_rotation", "complex_rotation"]),
-      startDate: z.string(),
+      workingDays: z.array(z.number()).min(1),
     }),
     handler: async (input, context) => {
       const user = requireUser(context);
       const groupId = generateId();
-      const startDate = new Date(input.startDate);
 
-      await db.insert(CarPoolGroups).values({
+      await db.insert(CarPoolGroups as any).values({
         id: groupId,
-        createdByUserId: user.id,
+        ownerId: user.id,
         name: input.name,
-        rotationType: input.rotationType,
-        startDate: startDate,
-        isActive: true,
+        workingDays: input.workingDays,
+        isArchived: false,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
 
       // Add creator as first member
       const memberId = generateId();
-      await db.insert(CarPoolGroupMembers).values({
+      await db.insert(CarPoolMembers as any).values({
         id: memberId,
         groupId,
         userId: user.id,
-        sortOrder: 0,
+        name: user.name || 'Unknown', // Assuming user has name
+        rotationOrder: 0,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
 
-      return { success: true, groupId };
+      return { groupId };
     },
   }),
 
-  updateGroup: defineAction({
-    input: z.object({
-      groupId: z.string(),
-      name: z.string().min(1).optional(),
-      rotationType: z.enum(["simple_rotation", "complex_rotation"]).optional(),
-      startDate: z.string().optional(),
-    }),
+  // Load user's groups
+  loadUserGroups: defineAction({
+    input: z.any().optional(),
+    handler: async (_, context) => {
+      const user = requireUser(context);
+
+      const memberships = await db
+        .select()
+        .from(CarPoolMembers as any)
+        .where(and(eq((CarPoolMembers as any).userId, user.id), eq((CarPoolMembers as any).isActive, true)));
+
+      const groupIds = memberships.map(m => m.groupId);
+
+      if (groupIds.length === 0) return { groups: [] };
+
+      const groups = await db
+        .select()
+        .from(CarPoolGroups as any)
+        .where(sql`${(CarPoolGroups as any).id} IN (${sql.join(groupIds, sql`, `)})`);
+
+      return { groups };
+    },
+  }),
+
+  // Load group detail
+  loadGroupDetail: defineAction({
+    input: z.object({ groupId: z.string() }),
     handler: async (input, context) => {
       const user = requireUser(context);
 
-      const groupResults = await db.select().from(CarPoolGroups).where(eq(CarPoolGroups.id, input.groupId));
-      if (!groupResults || groupResults.length === 0) throw new Error("Group not found");
+      // Check membership
+      const membership = await db
+        .select()
+        .from(CarPoolMembers as any)
+        .where(and(
+          eq((CarPoolMembers as any).groupId, input.groupId),
+          eq((CarPoolMembers as any).userId, user.id),
+          eq((CarPoolMembers as any).isActive, true)
+        ));
 
-      const group = groupResults[0];
-      if (group.createdByUserId !== user.id) throw new Error("Only group creator can edit group");
+      if (membership.length === 0) throw new Error("Not a member of this group");
 
-      const updates: any = { updatedAt: new Date() };
-      if (input.name !== undefined) updates.name = input.name;
-      if (input.rotationType !== undefined) updates.rotationType = input.rotationType;
-      if (input.startDate !== undefined) updates.startDate = new Date(input.startDate);
+      const group = await db
+        .select()
+        .from(CarPoolGroups as any)
+        .where(eq((CarPoolGroups as any).id, input.groupId))
+        .limit(1);
 
-      await db.update(CarPoolGroups).set(updates).where(eq(CarPoolGroups.id, input.groupId));
+      if (group.length === 0) throw new Error("Group not found");
 
-      return { success: true };
+      const members = await getActiveMembers(input.groupId);
+
+      // Get fairness for each member
+      const membersWithFairness = await Promise.all(
+        members.map(async (member) => ({
+          ...member,
+          fairness: await calculateMemberFairness(member.id)
+        }))
+      );
+
+      return {
+        group: group[0],
+        members: membersWithFairness
+      };
     },
   }),
 
+  // Add members to group
   addGroupMembers: defineAction({
     input: z.object({
       groupId: z.string(),
-      userIds: z.array(z.string()),
+      members: z.array(z.object({
+        userId: z.string(),
+        name: z.string()
+      }))
     }),
     handler: async (input, context) => {
       const user = requireUser(context);
 
-      const groupResults = await db.select().from(CarPoolGroups).where(eq(CarPoolGroups.id, input.groupId));
-      if (!groupResults || groupResults.length === 0) throw new Error("Group not found");
+      // Check ownership
+      const group = await db
+        .select()
+        .from(CarPoolGroups as any)
+        .where(and(eq((CarPoolGroups as any).id, input.groupId), eq((CarPoolGroups as any).ownerId, user.id)))
+        .limit(1);
 
-      const group = groupResults[0];
-      if (group.createdByUserId !== user.id) throw new Error("Only group creator can add members");
+      if (group.length === 0) throw new Error("Not group owner");
 
-      const members = await db.select().from(CarPoolGroupMembers).where(eq(CarPoolGroupMembers.groupId, input.groupId));
-      const maxOrder = members.length > 0 ? Math.max(...members.map((m) => m.sortOrder)) : -1;
+      const existingMembers = await getActiveMembers(input.groupId);
+      const maxOrder = existingMembers.length > 0 ? Math.max(...existingMembers.map(m => m.rotationOrder)) : -1;
 
-      for (let i = 0; i < input.userIds.length; i++) {
+      for (let i = 0; i < input.members.length; i++) {
         const memberId = generateId();
-        await db.insert(CarPoolGroupMembers).values({
+        await db.insert(CarPoolMembers as any).values({
           id: memberId,
           groupId: input.groupId,
-          userId: input.userIds[i],
-          sortOrder: maxOrder + i + 1,
+          userId: input.members[i].userId,
+          name: input.members[i].name,
+          rotationOrder: maxOrder + i + 1,
           isActive: true,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -167,81 +213,14 @@ export const server = {
     },
   }),
 
-  loadUserGroups: defineAction({
-    input: z.any().optional(),
-    handler: async (_, context) => {
-      const user = requireUser(context);
-
-      const members = await db
-        .select()
-        .from(CarPoolGroupMembers)
-        .where(eq(CarPoolGroupMembers.userId, user.id));
-
-      const groupIds = members.map((m) => m.groupId);
-
-      let groups: any[] = [];
-      if (groupIds.length > 0) {
-        const allGroups = await db.select().from(CarPoolGroups);
-        groups = allGroups.filter((g) => groupIds.includes(g.id));
-      }
-
-      return { groups };
-    },
-  }),
-
-  loadGroupDetail: defineAction({
-    input: z.object({ groupId: z.string() }),
-    handler: async (input, context) => {
-      const user = requireUser(context);
-
-      const userMembership = await db
-        .select()
-        .from(CarPoolGroupMembers)
-        .where(and(eq(CarPoolGroupMembers.groupId, input.groupId), eq(CarPoolGroupMembers.userId, user.id)));
-
-      if (userMembership.length === 0) throw new Error("You are not a member of this group");
-
-      const groupResults = await db.select().from(CarPoolGroups).where(eq(CarPoolGroups.id, input.groupId));
-      const group = groupResults.length > 0 ? groupResults[0] : null;
-
-      const members = await db
-        .select()
-        .from(CarPoolGroupMembers)
-        .where(eq(CarPoolGroupMembers.groupId, input.groupId));
-
-      const sortedMembers = members.sort((a, b) => a.sortOrder - b.sortOrder);
-
-      const workingDays = await db.select().from(CarPoolWorkingDays).where(eq(CarPoolWorkingDays.groupId, input.groupId));
-
-      return { group, members: sortedMembers, workingDays };
-    },
-  }),
-
-  getSuggestedDriverForDate: defineAction({
-    input: z.object({
-      groupId: z.string(),
-      date: z.string(),
-    }),
-    handler: async (input, context) => {
-      const user = requireUser(context);
-
-      const userMembership = await db
-        .select()
-        .from(CarPoolGroupMembers)
-        .where(and(eq(CarPoolGroupMembers.groupId, input.groupId), eq(CarPoolGroupMembers.userId, user.id)));
-
-      if (userMembership.length === 0) throw new Error("You are not a member of this group");
-
-      const suggestedDriverUserId = await getSuggestedDriverForGroupDate(input.groupId, new Date(input.date));
-      return { suggestedDriverUserId };
-    },
-  }),
-
+  // Create a trip
   createTrip: defineAction({
     input: z.object({
       groupId: z.string(),
       tripDate: z.string(),
-      actualDriverUserId: z.string().optional(),
+      actualDriverId: z.string(),
+      passengers: z.array(z.string()), // member IDs
+      absentees: z.array(z.string()), // member IDs
       petrolAmount: z.number().optional(),
       tollAmount: z.number().optional(),
       notes: z.string().optional(),
@@ -249,189 +228,233 @@ export const server = {
     handler: async (input, context) => {
       const user = requireUser(context);
 
-      const userMembership = await db
+      // Check membership
+      const membership = await db
         .select()
-        .from(CarPoolGroupMembers)
-        .where(and(eq(CarPoolGroupMembers.groupId, input.groupId), eq(CarPoolGroupMembers.userId, user.id)));
+        .from(CarPoolMembers as any)
+        .where(and(
+          eq((CarPoolMembers as any).groupId, input.groupId),
+          eq((CarPoolMembers as any).userId, user.id),
+          eq((CarPoolMembers as any).isActive, true)
+        ))
 
-      if (userMembership.length === 0) throw new Error("You are not a member of this group");
+      if (membership.length === 0) throw new Error("Not a member of this group");
 
-      const tripDate = new Date(input.tripDate);
-      const tripDateKey = tripDate.toISOString().split("T")[0];
-      const existingTrips = await db
+      // Check group not archived
+      const group = await db
         .select()
-        .from(CarPoolTrips)
-        .where(eq(CarPoolTrips.groupId, input.groupId));
+        .from(CarPoolGroups as any)
+        .where(eq((CarPoolGroups as any).id, input.groupId))
+        .limit(1);
 
-      const duplicateTrip = existingTrips.find((t) => {
-        const existingDateKey = new Date(t.tripDate).toISOString().split("T")[0];
-        return existingDateKey === tripDateKey;
-      });
+      if (group.length === 0 || group[0].isArchived) throw new Error("Group not found or archived");
 
-      if (duplicateTrip) throw new Error("A trip already exists for this group and date");
+      // Check no duplicate trip date
+      const existingTrip = await db
+        .select()
+        .from(CarPoolTrips as any)
+        .where(and(
+          eq((CarPoolTrips as any).groupId, input.groupId),
+          eq((CarPoolTrips as any).tripDate, new Date(input.tripDate))
+        ));
 
+      if (existingTrip.length > 0) throw new Error("Trip already exists for this date");
+
+      // Get all active members
+      const allMembers = await getActiveMembers(input.groupId);
+      const memberMap = new Map(allMembers.map(m => [m.id, m]));
+
+      // Validate driver
+      if (!memberMap.has(input.actualDriverId)) throw new Error("Invalid driver");
+      const driver = memberMap.get(input.actualDriverId)!;
+
+      // Validate passengers and absentees
+      const passengerSet = new Set(input.passengers);
+      const absenteeSet = new Set(input.absentees);
+
+      for (const pid of input.passengers) {
+        if (!memberMap.has(pid)) throw new Error("Invalid passenger");
+        if (pid === input.actualDriverId) throw new Error("Driver cannot be passenger");
+      }
+
+      for (const aid of input.absentees) {
+        if (!memberMap.has(aid)) throw new Error("Invalid absentee");
+        if (passengerSet.has(aid)) throw new Error("Absent member cannot be passenger");
+      }
+
+      // Check at least 2 active members
+      if (allMembers.length < 2) throw new Error("Group must have at least 2 active members");
+
+      // Create trip
       const tripId = generateId();
-      const suggestedDriver = await getSuggestedDriverForGroupDate(input.groupId, tripDate);
+      const tripDate = new Date(input.tripDate);
 
-      await db.insert(CarPoolTrips).values({
+      await db.insert(CarPoolTrips as any).values({
         id: tripId,
         groupId: input.groupId,
-        tripDate: tripDate,
-        suggestedDriverUserId: suggestedDriver || undefined,
-        actualDriverUserId: input.actualDriverUserId,
+        tripDate,
+        assignedDriverId: await getSuggestedDriverForDate(input.groupId, tripDate),
+        actualDriverId: driver.userId,
         petrolAmount: input.petrolAmount,
         tollAmount: input.tollAmount,
         notes: input.notes,
-        createdByUserId: user.id,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
 
-      return { success: true, tripId };
-    },
-  }),
+      // Create participants
+      const participants = [];
 
-  updateOwnTrip: defineAction({
-    input: z.object({
-      tripId: z.string(),
-      actualDriverUserId: z.string().optional(),
-      presentUserIdsJson: z.string().optional(),
-      absentUserIdsJson: z.string().optional(),
-      petrolAmount: z.number().optional(),
-      tollAmount: z.number().optional(),
-      notes: z.string().optional(),
-    }),
-    handler: async (input, context) => {
-      const user = requireUser(context);
+      // Driver
+      participants.push({
+        id: generateId(),
+        tripId,
+        memberId: input.actualDriverId,
+        role: 'driver',
+        attendanceStatus: 'present',
+        receivedRide: false,
+        missedRide: false,
+        createdAt: new Date(),
+      });
 
-      const tripResults = await db.select().from(CarPoolTrips).where(eq(CarPoolTrips.id, input.tripId));
-      if (!tripResults || tripResults.length === 0) throw new Error("Trip not found");
-
-      const trip = tripResults[0];
-      if (trip.createdByUserId !== user.id) throw new Error("You can only edit trips you created");
-
-      const updates: any = { updatedAt: new Date() };
-      if (input.actualDriverUserId !== undefined) updates.actualDriverUserId = input.actualDriverUserId;
-      if (input.presentUserIdsJson !== undefined) updates.presentUserIdsJson = input.presentUserIdsJson;
-      if (input.absentUserIdsJson !== undefined) updates.absentUserIdsJson = input.absentUserIdsJson;
-      if (input.petrolAmount !== undefined) updates.petrolAmount = input.petrolAmount;
-      if (input.tollAmount !== undefined) updates.tollAmount = input.tollAmount;
-      if (input.notes !== undefined) updates.notes = input.notes;
-
-      await db.update(CarPoolTrips).set(updates).where(eq(CarPoolTrips.id, input.tripId));
-
-      return { success: true };
-    },
-  }),
-
-  listTripHistory: defineAction({
-    input: z.object({
-      groupId: z.string(),
-      limit: z.number().optional(),
-    }),
-    handler: async (input, context) => {
-      const user = requireUser(context);
-
-      const userMembership = await db
-        .select()
-        .from(CarPoolGroupMembers)
-        .where(and(eq(CarPoolGroupMembers.groupId, input.groupId), eq(CarPoolGroupMembers.userId, user.id)));
-
-      if (userMembership.length === 0) throw new Error("You are not a member of this group");
-
-      const allTrips = await db.select().from(CarPoolTrips).where(eq(CarPoolTrips.groupId, input.groupId));
-
-      const trips = allTrips
-        .sort((a, b) => new Date(b.tripDate).getTime() - new Date(a.tripDate).getTime())
-        .slice(0, input.limit || 30);
-
-      return { trips };
-    },
-  }),
-
-  // Additional member & working day actions
-  updateGroupMemberOrder: defineAction({
-    input: z.object({
-      groupId: z.string(),
-      memberOrder: z.array(z.object({ memberId: z.string(), sortOrder: z.number() })),
-    }),
-    handler: async (input, context) => {
-      const user = requireUser(context);
-
-      const groupResults = await db.select().from(CarPoolGroups).where(eq(CarPoolGroups.id, input.groupId));
-      if (!groupResults || groupResults.length === 0) throw new Error("Group not found");
-
-      const group = groupResults[0];
-      if (group.createdByUserId !== user.id) throw new Error("Only group creator can reorder members");
-
-      for (const item of input.memberOrder) {
-        await db
-          .update(CarPoolGroupMembers)
-          .set({ sortOrder: item.sortOrder, updatedAt: new Date() })
-          .where(eq(CarPoolGroupMembers.id, item.memberId));
-      }
-
-      return { success: true };
-    },
-  }),
-
-  removeGroupMember: defineAction({
-    input: z.object({ groupId: z.string(), memberId: z.string() }),
-    handler: async (input, context) => {
-      const user = requireUser(context);
-
-      const groupResults = await db.select().from(CarPoolGroups).where(eq(CarPoolGroups.id, input.groupId));
-      if (!groupResults || groupResults.length === 0) throw new Error("Group not found");
-
-      const group = groupResults[0];
-      if (group.createdByUserId !== user.id) throw new Error("Only group creator can remove members");
-
-      const memberResults = await db.select().from(CarPoolGroupMembers).where(eq(CarPoolGroupMembers.id, input.memberId));
-      if (!memberResults || memberResults.length === 0) throw new Error("Member not found");
-
-      const member = memberResults[0];
-
-      const memberTrips = await db
-        .select()
-        .from(CarPoolTrips)
-        .where(and(eq(CarPoolTrips.groupId, input.groupId), eq(CarPoolTrips.createdByUserId, member.userId)));
-
-      if (memberTrips.length > 0) throw new Error("Cannot remove member with existing trips");
-
-      await db
-        .update(CarPoolGroupMembers)
-        .set({ isActive: false, updatedAt: new Date() })
-        .where(eq(CarPoolGroupMembers.id, input.memberId));
-
-      return { success: true };
-    },
-  }),
-
-  saveWorkingDays: defineAction({
-    input: z.object({
-      groupId: z.string(),
-      daysOfWeek: z.array(z.number().min(0).max(6)),
-    }),
-    handler: async (input, context) => {
-      const user = requireUser(context);
-
-      const groupResults = await db.select().from(CarPoolGroups).where(eq(CarPoolGroups.id, input.groupId));
-      if (!groupResults || groupResults.length === 0) throw new Error("Group not found");
-
-      const group = groupResults[0];
-      if (group.createdByUserId !== user.id) throw new Error("Only group creator can set working days");
-
-      for (const dayOfWeek of input.daysOfWeek) {
-        const dayId = generateId();
-        await db.insert(CarPoolWorkingDays).values({
-          id: dayId,
-          groupId: input.groupId,
-          dayOfWeek,
+      // Passengers
+      for (const pid of input.passengers) {
+        participants.push({
+          id: generateId(),
+          tripId,
+          memberId: pid,
+          role: 'passenger',
+          attendanceStatus: 'present',
+          receivedRide: true,
+          missedRide: false,
           createdAt: new Date(),
         });
       }
 
-      return { success: true };
+      // Absentees
+      for (const aid of input.absentees) {
+        const member = memberMap.get(aid)!;
+        // Check if they would have been a passenger in normal rotation
+        const wouldBePassenger = driver.userId !== member.userId; // Simple check
+
+        participants.push({
+          id: generateId(),
+          tripId,
+          memberId: aid,
+          role: wouldBePassenger ? 'passenger' : 'driver',
+          attendanceStatus: 'absent',
+          receivedRide: false,
+          missedRide: wouldBePassenger,
+          createdAt: new Date(),
+        });
+      }
+
+      // Insert all participants
+      for (const p of participants) {
+        await db.insert(CarPoolTripParticipants as any).values(p);
+      }
+
+      return { tripId };
+    },
+  }),
+
+  // List trip history
+  listTripHistory: defineAction({
+    input: z.object({ groupId: z.string(), limit: z.number().optional() }),
+    handler: async (input, context) => {
+      const user = requireUser(context);
+
+      // Check membership
+      const membership = await db
+        .select()
+        .from(CarPoolMembers as any)
+        .where(and(
+          eq((CarPoolMembers as any).groupId, input.groupId),
+          eq((CarPoolMembers as any).userId, user.id),
+          eq((CarPoolMembers as any).isActive, true)
+        ));
+
+      if (membership.length === 0) throw new Error("Not a member of this group");
+
+      const trips = await db
+        .select()
+        .from(CarPoolTrips as any)
+        .where(eq((CarPoolTrips as any).groupId, input.groupId))
+        .orderBy(desc((CarPoolTrips as any).tripDate))
+        .limit(input.limit || 30);
+
+      // Get participant counts for each trip
+      const tripsWithCounts = await Promise.all(
+        trips.map(async (trip) => {
+          const participants = await db
+            .select()
+            .from(CarPoolTripParticipants as any)
+            .where(eq((CarPoolTripParticipants as any).tripId, trip.id));
+
+          const passengerCount = participants.filter(p => p.role === 'passenger' && p.attendanceStatus === 'present').length;
+          const absenteeCount = participants.filter(p => p.attendanceStatus === 'absent').length;
+
+          return {
+            ...trip,
+            passengerCount,
+            absenteeCount
+          };
+        })
+      );
+
+      return { trips: tripsWithCounts };
+    },
+  }),
+
+  // Load trip detail
+  loadTripDetail: defineAction({
+    input: z.object({ tripId: z.string() }),
+    handler: async (input, context) => {
+      const user = requireUser(context);
+
+      const trip = await db
+        .select()
+        .from(CarPoolTrips as any)
+        .where(eq((CarPoolTrips as any).id, input.tripId))
+        .limit(1);
+
+      if (trip.length === 0) throw new Error("Trip not found");
+
+      // Check membership in group
+      const membership = await db
+        .select()
+        .from(CarPoolMembers as any)
+        .where(and(
+          eq((CarPoolMembers as any).groupId, trip[0].groupId),
+          eq((CarPoolMembers as any).userId, user.id),
+          eq((CarPoolMembers as any).isActive, true)
+        ));
+
+      if (membership.length === 0) throw new Error("Not authorized to view this trip");
+
+      const participants = await db
+        .select()
+        .from(CarPoolTripParticipants as any)
+        .where(eq((CarPoolTripParticipants as any).tripId, input.tripId));
+
+      // Get member details
+      const memberIds = participants.map(p => p.memberId);
+      const members = await db
+        .select()
+        .from(CarPoolMembers as any)
+        .where(sql`${(CarPoolMembers as any).id} IN (${sql.join(memberIds, sql`, `)})`);
+
+      const memberMap = new Map(members.map(m => [m.id, m]));
+
+      const participantsWithDetails = participants.map(p => ({
+        ...p,
+        member: memberMap.get(p.memberId)
+      }));
+
+      return {
+        trip: trip[0],
+        participants: participantsWithDetails
+      };
     },
   }),
 };

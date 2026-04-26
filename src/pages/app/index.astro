@@ -4,33 +4,11 @@ import { server } from "../../actions";
 
 // Load initial data server-side
 let groups = { groups: [] };
-let selectedGroup = null;
-let groupDetail = null;
-let tripHistory = null;
-let loadError = null;
 
 try {
-  const result = await server.loadUserGroups();
-  groups = result || { groups: [] };
-  selectedGroup = groups.groups && groups.groups.length > 0 ? groups.groups[0] : null;
-
-  if (selectedGroup) {
-    try {
-      groupDetail = await server.loadGroupDetail({ groupId: selectedGroup.id });
-      tripHistory = await server.listTripHistory({ groupId: selectedGroup.id, limit: 10 });
-    } catch (e) {
-      console.error("Error loading group detail:", e);
-    }
-  }
+  groups = await server.loadUserGroups() || { groups: [] };
 } catch (e) {
   console.error("Error loading user groups:", e);
-  loadError = e instanceof Error ? e.message : String(e);
-}
-
-// Helper to format date
-function formatDate(date: Date | string): string {
-  const d = new Date(date);
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 ---
 
@@ -39,30 +17,15 @@ function formatDate(date: Date | string): string {
     <div class="container max-w-4xl mx-auto px-4 py-8 md:py-12">
       <!-- Header -->
       <div class="mb-8">
-        <h1 class="text-4xl font-bold text-slate-900">Car Pool</h1>
-        <p class="text-lg text-slate-600 mt-2">Shared group rotation management</p>
+        <h1 class="text-4xl font-bold text-slate-900">My Car Pools</h1>
+        <p class="text-lg text-slate-600 mt-2">Manage your commute groups</p>
       </div>
-
-      <!-- Error Alert -->
-      {loadError && (
-        <div class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-          <h3 class="text-red-900 font-semibold mb-1">Error Loading Groups</h3>
-          <p class="text-red-800 text-sm">{loadError}</p>
-          <p class="text-red-700 text-xs mt-2">Please try refreshing or contacting support if the issue persists.</p>
-        </div>
-      )}
 
       <!-- Main Container with Alpine Store -->
       <div
         x-data="Object.assign($store.carPoolApp, {
           init() {
-            this.groupIdFromServer = '{selectedGroup?.id || ''}';
-            if (this.groupIdFromServer) {
-              this.selectedGroupId = this.groupIdFromServer;
-              this.loadGroupDetail();
-            } else {
-              this.loadUserGroups();
-            }
+            this.groups = {groups};
           }
         })"
         x-effect="init()"
@@ -73,7 +36,7 @@ function formatDate(date: Date | string): string {
           <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
             <div class="text-6xl mb-4">🚗</div>
             <h2 class="text-2xl font-bold text-slate-900 mb-2">No Car Pools Yet</h2>
-            <p class="text-slate-600 mb-6">Create your first car pool group to get started</p>
+            <p class="text-slate-600 mb-6">Create your first car pool group to get started with fair commute management</p>
             <button
               @click="openCreateGroupDrawer()"
               class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg transition"
@@ -83,20 +46,134 @@ function formatDate(date: Date | string): string {
           </div>
         </template>
 
-        <!-- Groups Exist -->
+        <!-- Groups List -->
         <template x-if="groups.length > 0">
           <div class="space-y-6">
-            <!-- Group Selector & Actions -->
-            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-semibold text-slate-900">Groups</h2>
-                <button
-                  @click="openCreateGroupDrawer()"
-                  class="text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1 px-4 rounded-lg transition"
-                >
-                  + New Group
-                </button>
+            <!-- Create Group Button -->
+            <div class="flex justify-end">
+              <button
+                @click="openCreateGroupDrawer()"
+                class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition"
+              >
+                + New Group
+              </button>
+            </div>
+
+            <!-- Groups Grid -->
+            <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              <template x-for="group in groups" :key="group.id">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 hover:shadow-md transition">
+                  <div class="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 class="text-lg font-semibold text-slate-900" x-text="group.name"></h3>
+                      <p class="text-sm text-slate-600 mt-1">
+                        <span x-text="group.workingDays?.length || 0"></span> working days
+                      </p>
+                    </div>
+                    <div class="text-xs text-slate-500" x-text="formatDate(group.createdAt)"></div>
+                  </div>
+
+                  <div class="flex items-center justify-between">
+                    <div class="text-sm text-slate-600">
+                      <span x-show="!group.isArchived">Active</span>
+                      <span x-show="group.isArchived" class="text-red-600">Archived</span>
+                    </div>
+                    <button
+                      @click="navigateToGroup(group.id)"
+                      class="text-blue-600 hover:text-blue-700 font-medium text-sm"
+                      x-show="!group.isArchived"
+                    >
+                      Open →
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- Loading State -->
+        <template x-if="isLoading">
+          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p class="text-slate-600">Loading your groups...</p>
+          </div>
+        </template>
+
+        <!-- Error State -->
+        <template x-if="error">
+          <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+            <h3 class="text-red-900 font-semibold mb-1">Error</h3>
+            <p class="text-red-800 text-sm" x-text="error"></p>
+          </div>
+        </template>
+      </div>
+
+      <!-- Create Group Drawer -->
+      <div
+        x-show="showCreateGroupDrawer"
+        x-transition
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+        @click.self="closeCreateGroupDrawer()"
+      >
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+          <h3 class="text-lg font-semibold text-slate-900 mb-4">Create New Car Pool Group</h3>
+
+          <form @submit.prevent="submitCreateGroup()">
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Group Name</label>
+                <input
+                  type="text"
+                  x-model="createGroupForm.name"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="e.g., Office Team Alpha"
+                  required
+                />
               </div>
+
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">Working Days</label>
+                <div class="grid grid-cols-7 gap-2">
+                  <template x-for="(day, index) in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']" :key="index">
+                    <label class="flex items-center">
+                      <input
+                        type="checkbox"
+                        :value="index + 1"
+                        x-model="createGroupForm.workingDays"
+                        class="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        :checked="index < 5"
+                      />
+                      <span class="ml-1 text-xs text-slate-600" x-text="day"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 mt-6">
+              <button
+                type="button"
+                @click="closeCreateGroupDrawer()"
+                class="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                :disabled="isLoading"
+                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
+              >
+                <span x-show="!isLoading">Create Group</span>
+                <span x-show="isLoading">Creating...</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</AppShell>
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <template x-for="group in groups" :key="group.id">

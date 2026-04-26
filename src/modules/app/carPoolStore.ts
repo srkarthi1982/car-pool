@@ -5,46 +5,57 @@ import { server } from "../../actions";
 // Type definitions
 export interface CarPoolGroup {
   id: string;
-  createdByUserId: string;
+  ownerId: string;
   name: string;
-  rotationType: string;
-  startDate: Date;
-  isActive: boolean;
+  workingDays: number[];
+  isArchived: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface CarPoolGroupMember {
+export interface CarPoolMember {
   id: string;
   groupId: string;
   userId: string;
-  sortOrder: number;
+  name: string;
+  rotationOrder: number;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
+  fairness?: {
+    driveCount: number;
+    rideCount: number;
+    absenceCount: number;
+    missedRideCount: number;
+    fairnessScore: number;
+  };
 }
 
 export interface CarPoolTrip {
   id: string;
   groupId: string;
   tripDate: Date;
-  suggestedDriverUserId?: string;
-  actualDriverUserId?: string;
-  presentUserIdsJson?: string;
-  absentUserIdsJson?: string;
+  assignedDriverId?: string;
+  actualDriverId?: string;
   petrolAmount?: number;
   tollAmount?: number;
   notes?: string;
-  createdByUserId: string;
   createdAt: Date;
   updatedAt: Date;
+  passengerCount?: number;
+  absenteeCount?: number;
 }
 
-export interface CarPoolWorkingDay {
+export interface TripParticipant {
   id: string;
-  groupId: string;
-  dayOfWeek: number;
+  tripId: string;
+  memberId: string;
+  role: 'driver' | 'passenger';
+  attendanceStatus: 'present' | 'absent';
+  receivedRide: boolean;
+  missedRide: boolean;
   createdAt: Date;
+  member?: CarPoolMember;
 }
 
 export class CarPoolAppStore extends AvBaseStore {
@@ -53,22 +64,25 @@ export class CarPoolAppStore extends AvBaseStore {
   selectedGroupId: string | null = null;
   selectedGroupDetail: {
     group: CarPoolGroup | null;
-    members: CarPoolGroupMember[];
-    workingDays: CarPoolWorkingDay[];
+    members: CarPoolMember[];
   } = {
     group: null,
     members: [],
-    workingDays: [],
   };
 
   tripHistory: CarPoolTrip[] = [];
-  todaysSuggestedDriver: string | null = null;
-  nextWeekSuggestions: Array<{ date: string; driverUserId: string | null }> = [];
+  selectedTrip: {
+    trip: CarPoolTrip | null;
+    participants: TripParticipant[];
+  } = {
+    trip: null,
+    participants: [],
+  };
 
   // UI state
   isLoading = false;
   error: string | null = null;
-  selectedTab: "overview" | "members" | "schedule" | "trips" = "overview";
+  currentView: 'groups' | 'group-dashboard' | 'trip-history' | 'trip-detail' = 'groups';
   showCreateGroupDrawer = false;
   showAddMembersDrawer = false;
   showCreateTripDrawer = false;
@@ -76,20 +90,51 @@ export class CarPoolAppStore extends AvBaseStore {
   // Form state
   createGroupForm = {
     name: "",
-    rotationType: "simple_rotation" as const,
-    startDate: new Date().toISOString().split("T")[0],
+    workingDays: [1, 2, 3, 4, 5], // Mon-Fri
+  };
+
+  addMembersForm = {
+    members: [] as Array<{ userId: string; name: string }>,
   };
 
   createTripForm = {
     tripDate: new Date().toISOString().split("T")[0],
-    actualDriverUserId: "",
-    petrolAmount: 0,
-    tollAmount: 0,
+    actualDriverId: "",
+    passengers: [] as string[],
+    absentees: [] as string[],
+    petrolAmount: "",
+    tollAmount: "",
     notes: "",
   };
 
   // ============================================================================
-  // GROUP LOADING & SELECTION
+  // NAVIGATION
+  // ============================================================================
+
+  navigateToGroups() {
+    this.currentView = 'groups';
+    this.selectedGroupId = null;
+    this.loadUserGroups();
+  }
+
+  navigateToGroup(groupId: string) {
+    this.selectedGroupId = groupId;
+    this.currentView = 'group-dashboard';
+    this.loadGroupDetail();
+  }
+
+  navigateToTripHistory() {
+    this.currentView = 'trip-history';
+    this.loadTripHistory();
+  }
+
+  navigateToTripDetail(tripId: string) {
+    this.currentView = 'trip-detail';
+    this.loadTripDetail(tripId);
+  }
+
+  // ============================================================================
+  // GROUP LOADING & MANAGEMENT
   // ============================================================================
 
   async loadUserGroups() {
@@ -98,10 +143,6 @@ export class CarPoolAppStore extends AvBaseStore {
     try {
       const result = await server.loadUserGroups();
       this.groups = result.groups || [];
-      if (this.groups.length > 0 && !this.selectedGroupId) {
-        this.selectedGroupId = this.groups[0].id;
-        await this.loadGroupDetail();
-      }
     } catch (err: any) {
       this.error = err.message || "Failed to load groups";
     } finally {
@@ -119,25 +160,13 @@ export class CarPoolAppStore extends AvBaseStore {
       this.selectedGroupDetail = {
         group: result.group,
         members: result.members || [],
-        workingDays: result.workingDays || [],
       };
-      await this.loadTripHistory();
-      await this.loadTodaysSuggestion();
     } catch (err: any) {
       this.error = err.message || "Failed to load group detail";
     } finally {
       this.isLoading = false;
     }
   }
-
-  selectGroup(groupId: string) {
-    this.selectedGroupId = groupId;
-    this.loadGroupDetail();
-  }
-
-  // ============================================================================
-  // GROUP CREATION & MANAGEMENT
-  // ============================================================================
 
   openCreateGroupDrawer() {
     this.showCreateGroupDrawer = true;
@@ -148,8 +177,7 @@ export class CarPoolAppStore extends AvBaseStore {
     this.showCreateGroupDrawer = false;
     this.createGroupForm = {
       name: "",
-      rotationType: "simple_rotation",
-      startDate: new Date().toISOString().split("T")[0],
+      workingDays: [1, 2, 3, 4, 5],
     };
   }
 
@@ -163,12 +191,9 @@ export class CarPoolAppStore extends AvBaseStore {
     this.error = null;
     try {
       const result = await server.createGroup(this.createGroupForm);
-      if (result.success) {
-        await this.loadUserGroups();
-        this.closeCreateGroupDrawer();
-        this.selectedGroupId = result.groupId;
-        await this.loadGroupDetail();
-      }
+      await this.loadUserGroups();
+      this.closeCreateGroupDrawer();
+      this.navigateToGroup(result.groupId);
     } catch (err: any) {
       this.error = err.message || "Failed to create group";
     } finally {
@@ -183,94 +208,38 @@ export class CarPoolAppStore extends AvBaseStore {
   openAddMembersDrawer() {
     this.showAddMembersDrawer = true;
     this.error = null;
+    this.addMembersForm.members = [];
   }
 
   closeAddMembersDrawer() {
     this.showAddMembersDrawer = false;
+    this.addMembersForm.members = [];
   }
 
-  async addMembers(userIds: string[]) {
-    if (!this.selectedGroupId || userIds.length === 0) return;
+  addMemberToForm(userId: string, name: string) {
+    if (!this.addMembersForm.members.find(m => m.userId === userId)) {
+      this.addMembersForm.members.push({ userId, name });
+    }
+  }
+
+  removeMemberFromForm(index: number) {
+    this.addMembersForm.members.splice(index, 1);
+  }
+
+  async submitAddMembers() {
+    if (!this.selectedGroupId || this.addMembersForm.members.length === 0) return;
 
     this.isLoading = true;
     this.error = null;
     try {
-      const result = await server.addGroupMembers({
+      await server.addGroupMembers({
         groupId: this.selectedGroupId,
-        userIds,
+        members: this.addMembersForm.members,
       });
-      if (result.success) {
-        await this.loadGroupDetail();
-        this.closeAddMembersDrawer();
-      }
+      await this.loadGroupDetail();
+      this.closeAddMembersDrawer();
     } catch (err: any) {
       this.error = err.message || "Failed to add members";
-    } finally {
-      this.isLoading = false;
-    }
-  }
-
-  async updateMemberOrder(memberOrder: Array<{ memberId: string; sortOrder: number }>) {
-    if (!this.selectedGroupId) return;
-
-    this.isLoading = true;
-    this.error = null;
-    try {
-      const result = await server.updateGroupMemberOrder({
-        groupId: this.selectedGroupId,
-        memberOrder,
-      });
-      if (result.success) {
-        await this.loadGroupDetail();
-      }
-    } catch (err: any) {
-      this.error = err.message || "Failed to update member order";
-    } finally {
-      this.isLoading = false;
-    }
-  }
-
-  async removeMember(memberId: string) {
-    if (!this.selectedGroupId) return;
-
-    if (!confirm("Are you sure you want to remove this member?")) return;
-
-    this.isLoading = true;
-    this.error = null;
-    try {
-      const result = await server.removeGroupMember({
-        groupId: this.selectedGroupId,
-        memberId,
-      });
-      if (result.success) {
-        await this.loadGroupDetail();
-      }
-    } catch (err: any) {
-      this.error = err.message || "Failed to remove member";
-    } finally {
-      this.isLoading = false;
-    }
-  }
-
-  // ============================================================================
-  // WORKING DAYS
-  // ============================================================================
-
-  async saveWorkingDays(daysOfWeek: number[]) {
-    if (!this.selectedGroupId) return;
-
-    this.isLoading = true;
-    this.error = null;
-    try {
-      const result = await server.saveWorkingDays({
-        groupId: this.selectedGroupId,
-        daysOfWeek,
-      });
-      if (result.success) {
-        await this.loadGroupDetail();
-      }
-    } catch (err: any) {
-      this.error = err.message || "Failed to save working days";
     } finally {
       this.isLoading = false;
     }
@@ -283,36 +252,76 @@ export class CarPoolAppStore extends AvBaseStore {
   openCreateTripDrawer() {
     this.showCreateTripDrawer = true;
     this.error = null;
-  }
-
-  closeCreateTripDrawer() {
-    this.showCreateTripDrawer = false;
     this.createTripForm = {
       tripDate: new Date().toISOString().split("T")[0],
-      actualDriverUserId: "",
-      petrolAmount: 0,
-      tollAmount: 0,
+      actualDriverId: "",
+      passengers: [],
+      absentees: [],
+      petrolAmount: "",
+      tollAmount: "",
       notes: "",
     };
   }
 
+  closeCreateTripDrawer() {
+    this.showCreateTripDrawer = false;
+  }
+
+  togglePassenger(memberId: string) {
+    const index = this.createTripForm.passengers.indexOf(memberId);
+    if (index > -1) {
+      this.createTripForm.passengers.splice(index, 1);
+    } else {
+      this.createTripForm.passengers.push(memberId);
+      // Remove from absentees if present
+      const absIndex = this.createTripForm.absentees.indexOf(memberId);
+      if (absIndex > -1) {
+        this.createTripForm.absentees.splice(absIndex, 1);
+      }
+    }
+  }
+
+  toggleAbsentee(memberId: string) {
+    const index = this.createTripForm.absentees.indexOf(memberId);
+    if (index > -1) {
+      this.createTripForm.absentees.splice(index, 1);
+    } else {
+      this.createTripForm.absentees.push(memberId);
+      // Remove from passengers if present
+      const passIndex = this.createTripForm.passengers.indexOf(memberId);
+      if (passIndex > -1) {
+        this.createTripForm.passengers.splice(passIndex, 1);
+      }
+    }
+  }
+
   async submitCreateTrip() {
-    if (!this.selectedGroupId || !this.createTripForm.tripDate) {
-      this.error = "Trip date is required";
+    if (!this.selectedGroupId) return;
+
+    // Validation
+    if (!this.createTripForm.actualDriverId) {
+      this.error = "Driver is required";
       return;
     }
+
+    const petrolAmount = this.createTripForm.petrolAmount ? parseFloat(this.createTripForm.petrolAmount) : undefined;
+    const tollAmount = this.createTripForm.tollAmount ? parseFloat(this.createTripForm.tollAmount) : undefined;
 
     this.isLoading = true;
     this.error = null;
     try {
-      const result = await server.createTrip({
+      await server.createTrip({
         groupId: this.selectedGroupId,
-        ...this.createTripForm,
+        tripDate: this.createTripForm.tripDate,
+        actualDriverId: this.createTripForm.actualDriverId,
+        passengers: this.createTripForm.passengers,
+        absentees: this.createTripForm.absentees,
+        petrolAmount,
+        tollAmount,
+        notes: this.createTripForm.notes,
       });
-      if (result.success) {
-        await this.loadTripHistory();
-        this.closeCreateTripDrawer();
-      }
+      await this.loadGroupDetail();
+      this.closeCreateTripDrawer();
     } catch (err: any) {
       this.error = err.message || "Failed to create trip";
     } finally {
@@ -323,60 +332,63 @@ export class CarPoolAppStore extends AvBaseStore {
   async loadTripHistory() {
     if (!this.selectedGroupId) return;
 
-    try {
-      const result = await server.listTripHistory({
-        groupId: this.selectedGroupId,
-        limit: 30,
-      });
-      this.tripHistory = result.trips || [];
-    } catch (err: any) {
-      console.error("Failed to load trip history:", err);
-    }
-  }
-
-  async loadTodaysSuggestion() {
-    if (!this.selectedGroupId) return;
-
-    try {
-      const today = new Date().toISOString().split("T")[0];
-      const result = await server.getSuggestedDriverForDate({
-        groupId: this.selectedGroupId,
-        date: today,
-      });
-      this.todaysSuggestedDriver = result.suggestedDriverUserId;
-    } catch (err: any) {
-      console.error("Failed to load suggestion:", err);
-    }
-  }
-
-  async updateTrip(tripId: string, updates: any) {
     this.isLoading = true;
     this.error = null;
     try {
-      const result = await server.updateOwnTrip({
-        tripId,
-        ...updates,
-      });
-      if (result.success) {
-        await this.loadTripHistory();
-      }
+      const result = await server.listTripHistory({ groupId: this.selectedGroupId });
+      this.tripHistory = result.trips || [];
     } catch (err: any) {
-      this.error = err.message || "Failed to update trip";
+      this.error = err.message || "Failed to load trip history";
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  async loadTripDetail(tripId: string) {
+    this.isLoading = true;
+    this.error = null;
+    try {
+      const result = await server.loadTripDetail({ tripId });
+      this.selectedTrip = {
+        trip: result.trip,
+        participants: result.participants || [],
+      };
+    } catch (err: any) {
+      this.error = err.message || "Failed to load trip detail";
     } finally {
       this.isLoading = false;
     }
   }
 
   // ============================================================================
-  // UI HELPERS
+  // UTILITIES
   // ============================================================================
 
-  setSelectedTab(tab: "overview" | "members" | "schedule" | "trips") {
-    this.selectedTab = tab;
+  formatDate(date: Date | string): string {
+    const d = new Date(date);
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
-  clearError() {
-    this.error = null;
+  getTodaysDriver(): CarPoolMember | null {
+    if (!this.selectedGroupDetail.members.length) return null;
+    // Simple implementation - in real app, use rotation logic
+    const today = new Date().toISOString().split('T')[0];
+    const hash = today.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+    const index = hash % this.selectedGroupDetail.members.length;
+    return this.selectedGroupDetail.members[index];
+  }
+
+  getNextDrivers(count: number = 3): CarPoolMember[] {
+    const today = new Date();
+    const drivers: CarPoolMember[] = [];
+    for (let i = 1; i <= count; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() + i);
+      const hash = date.toISOString().split('T')[0].split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+      const index = hash % this.selectedGroupDetail.members.length;
+      drivers.push(this.selectedGroupDetail.members[index]);
+    }
+    return drivers;
   }
 }
 

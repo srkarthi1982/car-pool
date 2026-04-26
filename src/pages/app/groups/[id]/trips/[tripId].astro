@@ -1,0 +1,221 @@
+---
+import AppShell from "../../../../../layouts/AppShell.astro";
+import { server } from "../../../../../actions";
+
+const { id, tripId } = Astro.params;
+if (!id || !tripId) {
+  throw new Error("Group ID and Trip ID are required");
+}
+
+// Load trip detail server-side
+let tripDetail = null;
+let loadError = null;
+
+try {
+  tripDetail = await server.loadTripDetail({ tripId });
+} catch (e) {
+  console.error("Error loading trip detail:", e);
+  loadError = e instanceof Error ? e.message : String(e);
+}
+
+// Helper to format date
+function formatDate(date: Date | string): string {
+  const d = new Date(date);
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+---
+
+<AppShell>
+  <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div class="container max-w-4xl mx-auto px-4 py-8 md:py-12">
+      <!-- Header -->
+      <div class="mb-8">
+        <div class="flex items-center justify-between">
+          <div>
+            <button
+              onclick="window.location.href = `/app/groups/${id}/trips`"
+              class="text-blue-600 hover:text-blue-700 font-medium mb-2 inline-flex items-center"
+            >
+              ← Back to Trips
+            </button>
+            <h1 class="text-4xl font-bold text-slate-900">Trip Details</h1>
+            <p class="text-lg text-slate-600 mt-2" x-show="selectedTrip.trip" x-text="`Trip on ${formatDate(selectedTrip.trip.tripDate)}`"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error Alert -->
+      {loadError && (
+        <div class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <h3 class="text-red-900 font-semibold mb-1">Error Loading Trip</h3>
+          <p class="text-red-800 text-sm">{loadError}</p>
+        </div>
+      )}
+
+      <!-- Main Container with Alpine Store -->
+      <div
+        x-data="Object.assign($store.carPoolApp, {
+          init() {
+            this.selectedGroupId = '{id}';
+            this.selectedTrip = {tripDetail};
+            this.currentView = 'trip-detail';
+          }
+        })"
+        x-effect="init()"
+        class="space-y-6"
+      >
+        <!-- Loading State -->
+        <template x-if="isLoading && !selectedTrip.trip">
+          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p class="text-slate-600">Loading trip details...</p>
+          </div>
+        </template>
+
+        <!-- Trip Content -->
+        <template x-if="selectedTrip.trip">
+          <div class="grid gap-6 lg:grid-cols-3">
+            <!-- Main Content -->
+            <div class="lg:col-span-2 space-y-6">
+              <!-- Trip Overview -->
+              <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h3 class="text-lg font-semibold text-slate-900 mb-4">Trip Overview</h3>
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <p class="text-sm text-slate-600">Date</p>
+                    <p class="font-medium text-slate-900" x-text="formatDate(selectedTrip.trip.tripDate)"></p>
+                  </div>
+                  <div>
+                    <p class="text-sm text-slate-600">Driver</p>
+                    <p class="font-medium text-slate-900" x-text="selectedTrip.participants.find(p => p.role === 'driver')?.member?.name || 'Not set'"></p>
+                  </div>
+                  <div x-show="selectedTrip.trip.petrolAmount || selectedTrip.trip.tollAmount">
+                    <p class="text-sm text-slate-600">Costs</p>
+                    <p class="font-medium text-slate-900">
+                      $<span x-text="((selectedTrip.trip.petrolAmount || 0) + (selectedTrip.trip.tollAmount || 0)).toFixed(2)"></span>
+                    </p>
+                  </div>
+                  <div x-show="selectedTrip.trip.notes">
+                    <p class="text-sm text-slate-600">Notes</p>
+                    <p class="font-medium text-slate-900" x-text="selectedTrip.trip.notes"></p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Participants -->
+              <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h3 class="text-lg font-semibold text-slate-900 mb-4">Participants</h3>
+
+                <!-- Driver -->
+                <div class="mb-4">
+                  <h4 class="text-sm font-medium text-slate-700 mb-2">Driver</h4>
+                  <template x-for="participant in selectedTrip.participants.filter(p => p.role === 'driver')" :key="participant.id">
+                    <div class="flex items-center space-x-3 p-3 bg-blue-50 rounded-lg">
+                      <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                        <span class="text-blue-600 font-medium text-sm" x-text="participant.member?.name.charAt(0).toUpperCase()"></span>
+                      </div>
+                      <div>
+                        <p class="font-medium text-slate-900" x-text="participant.member?.name"></p>
+                        <p class="text-sm text-slate-600">Drove • Received ride: <span x-text="participant.receivedRide ? 'No' : 'N/A'"></span></p>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Passengers -->
+                <div class="mb-4" x-show="selectedTrip.participants.filter(p => p.role === 'passenger' && p.attendanceStatus === 'present').length > 0">
+                  <h4 class="text-sm font-medium text-slate-700 mb-2">Passengers</h4>
+                  <div class="space-y-2">
+                    <template x-for="participant in selectedTrip.participants.filter(p => p.role === 'passenger' && p.attendanceStatus === 'present')" :key="participant.id">
+                      <div class="flex items-center space-x-3 p-3 bg-green-50 rounded-lg">
+                        <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                          <span class="text-green-600 font-medium text-sm" x-text="participant.member?.name.charAt(0).toUpperCase()"></span>
+                        </div>
+                        <div>
+                          <p class="font-medium text-slate-900" x-text="participant.member?.name"></p>
+                          <p class="text-sm text-slate-600">Passenger • Received ride: <span x-text="participant.receivedRide ? 'Yes' : 'No'"></span></p>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Absentees -->
+                <div x-show="selectedTrip.participants.filter(p => p.attendanceStatus === 'absent').length > 0">
+                  <h4 class="text-sm font-medium text-slate-700 mb-2">Absentees</h4>
+                  <div class="space-y-2">
+                    <template x-for="participant in selectedTrip.participants.filter(p => p.attendanceStatus === 'absent')" :key="participant.id">
+                      <div class="flex items-center space-x-3 p-3 bg-red-50 rounded-lg">
+                        <div class="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                          <span class="text-red-600 font-medium text-sm" x-text="participant.member?.name.charAt(0).toUpperCase()"></span>
+                        </div>
+                        <div>
+                          <p class="font-medium text-slate-900" x-text="participant.member?.name"></p>
+                          <p class="text-sm text-slate-600">
+                            Absent • Missed ride: <span x-text="participant.missedRide ? 'Yes' : 'No'"></span>
+                          </p>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+              <!-- Fairness Impact -->
+              <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h3 class="text-lg font-semibold text-slate-900 mb-4">Fairness Impact</h3>
+                <div class="space-y-3">
+                  <template x-for="participant in selectedTrip.participants" :key="participant.id">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center space-x-2">
+                        <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium"
+                             :class="participant.role === 'driver' ? 'bg-blue-100 text-blue-600' : participant.attendanceStatus === 'present' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'">
+                          <span x-text="participant.member?.name.charAt(0).toUpperCase()"></span>
+                        </div>
+                        <span class="text-sm text-slate-700" x-text="participant.member?.name"></span>
+                      </div>
+                      <div class="text-right">
+                        <div class="text-xs text-slate-600" x-text="participant.role === 'driver' ? '+1 drive' : participant.attendanceStatus === 'present' ? '+1 ride' : participant.missedRide ? '+1 missed' : '+1 absence'"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Cost Breakdown -->
+              <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6" x-show="selectedTrip.trip.petrolAmount || selectedTrip.trip.tollAmount">
+                <h3 class="text-lg font-semibold text-slate-900 mb-4">Cost Breakdown</h3>
+                <div class="space-y-2">
+                  <div class="flex justify-between" x-show="selectedTrip.trip.petrolAmount">
+                    <span class="text-sm text-slate-600">Petrol</span>
+                    <span class="text-sm font-medium text-slate-900">$<span x-text="selectedTrip.trip.petrolAmount.toFixed(2)"></span></span>
+                  </div>
+                  <div class="flex justify-between" x-show="selectedTrip.trip.tollAmount">
+                    <span class="text-sm text-slate-600">Toll</span>
+                    <span class="text-sm font-medium text-slate-900">$<span x-text="selectedTrip.trip.tollAmount.toFixed(2)"></span></span>
+                  </div>
+                  <hr class="my-2">
+                  <div class="flex justify-between">
+                    <span class="text-sm font-medium text-slate-900">Total</span>
+                    <span class="text-sm font-medium text-slate-900">$<span x-text="((selectedTrip.trip.petrolAmount || 0) + (selectedTrip.trip.tollAmount || 0)).toFixed(2)"></span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Error State -->
+        <template x-if="error && !isLoading">
+          <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+            <h3 class="text-red-900 font-semibold mb-1">Error</h3>
+            <p class="text-red-800 text-sm" x-text="error"></p>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+</AppShell>
