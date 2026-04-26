@@ -1,6 +1,6 @@
 import type { Alpine } from "alpinejs";
 import { AvBaseStore } from "@ansiversa/components/alpine";
-import { server } from "../../actions";
+import { actions } from "astro:actions";
 
 // Type definitions
 export interface CarPoolGroup {
@@ -180,7 +180,7 @@ export class CarPoolAppStore extends AvBaseStore {
     this.isLoading = true;
     this.error = null;
     try {
-      const result = await server.loadUserGroups({});
+      const result = await actions.loadUserGroups({});
       this.groups = (result.data?.groups as any) || [];
     } catch (err: any) {
       this.error = err.message || "Failed to load groups";
@@ -195,7 +195,7 @@ export class CarPoolAppStore extends AvBaseStore {
     this.isLoading = true;
     this.error = null;
     try {
-      const result = await server.loadGroupDetail({ groupId: this.selectedGroupId });
+      const result = await actions.loadGroupDetail({ groupId: this.selectedGroupId });
       this.selectedGroupDetail = {
         group: (result.data?.group as any) ?? null,
         members: (result.data?.members as any) || [],
@@ -226,10 +226,19 @@ export class CarPoolAppStore extends AvBaseStore {
       return;
     }
 
+    const workingDays = this.normalizeWorkingDays(this.createGroupForm.workingDays);
+    if (workingDays.length === 0) {
+      this.error = "Select at least one working day";
+      return;
+    }
+
     this.isLoading = true;
     this.error = null;
     try {
-      const result = await server.createGroup(this.createGroupForm);
+      const result = await actions.createGroup({
+        name: this.createGroupForm.name.trim(),
+        workingDays,
+      });
       this.closeCreateGroupDrawer();
       if (result.data?.groupId) {
         this.navigateToGroup(result.data.groupId);
@@ -272,7 +281,7 @@ export class CarPoolAppStore extends AvBaseStore {
     this.isLoading = true;
     this.error = null;
     try {
-      await server.addGroupMembers({
+      await actions.addGroupMembers({
         groupId: this.selectedGroupId,
         members: this.addMembersForm.members,
       });
@@ -350,7 +359,7 @@ export class CarPoolAppStore extends AvBaseStore {
     this.isLoading = true;
     this.error = null;
     try {
-      await server.createTrip({
+      await actions.createTrip({
         groupId: this.selectedGroupId,
         tripDate: this.createTripForm.tripDate,
         actualDriverId: this.createTripForm.actualDriverId,
@@ -376,7 +385,7 @@ export class CarPoolAppStore extends AvBaseStore {
     this.isLoading = true;
     this.error = null;
     try {
-      const result = await server.listTripHistory({ groupId: this.selectedGroupId });
+      const result = await actions.listTripHistory({ groupId: this.selectedGroupId });
       this.tripHistory = (result.data?.trips as any) || [];
     } catch (err: any) {
       this.error = err.message || "Failed to load trip history";
@@ -389,7 +398,7 @@ export class CarPoolAppStore extends AvBaseStore {
     this.isLoading = true;
     this.error = null;
     try {
-      const result = await server.loadTripDetail({ tripId });
+      const result = await actions.loadTripDetail({ tripId });
       this.selectedTrip = {
         trip: (result.data?.trip as any) ?? null,
         participants: (result.data?.participants as any) || [],
@@ -440,6 +449,12 @@ export class CarPoolAppStore extends AvBaseStore {
     } catch {
       return {};
     }
+  }
+
+  private normalizeWorkingDays(values: Array<string | number>) {
+    return values
+      .map((value) => typeof value === "number" ? value : Number.parseInt(value, 10))
+      .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
   }
 
   private visit(path: string) {

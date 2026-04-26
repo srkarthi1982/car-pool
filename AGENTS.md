@@ -145,6 +145,10 @@ Do NOT implement complex rotation now.
 
 ## Task Log (Newest first)
 
+- 2026-04-26 (h): Fixed create-group action 400 on `/app` by normalizing drawer checkbox `workingDays` values from Alpine string inputs into validated `number[]` payloads before calling `createGroup`. Added client-side empty-selection guard. Verification: `npm run typecheck` ✅.
+
+- 2026-04-26 (g): Fixed browser runtime error `ReferenceError: process is not defined` by removing direct client import of `src/actions` from `carPoolStore` and switching the Alpine store to the approved `astro:actions` client facade. This stopped `astro:db` / `libsql` server code from leaking into the browser bundle. Verification: `npm run typecheck` ✅, `npm run build` ✅, built client bundle no longer contains `process`, `libsql`, or `ASTRO_DB_APP_TOKEN`.
+
 - 2026-04-26 (f): Refactored protected Car Pool workspace routes to align with Ansiversa mini-app shell standards. Rebuilt `/app`, `/app/groups/[id]`, `/app/groups/[id]/trips`, and `/app/groups/[id]/trips/[tripId]` around `AppShell`, `AvContainer`, `AvCard`, `AvEmptyState`, and standard drawer presentation; removed broken client/server Alpine wiring that left isolated floating forms; routed group/trip navigation to real workspace URLs; added reusable workspace styling hooks; preserved existing group/trip logic and schema. Verification: `npm run typecheck` ✅, `npm run build` ✅.
 
 - 2026-04-26 (e): UI standard correction for `/app` workspace. Removed malformed trailing page markup from `/app/index.astro`, ensuring clean group list layout and consistent Ansiversa workspace presentation. Verified proper `AppShell` use, drawer patterns, cards, and vertical section structure on `/app/groups/[id].astro`. Build passed cleanly. 
