@@ -1,152 +1,107 @@
 ---
-import AppShell from "../../../../layouts/AppShell.astro";
+import { AvButton, AvCard, AvContainer, AvEmptyState } from "@ansiversa/components";
 import { server } from "../../../../actions";
+import AppShell from "../../../../layouts/AppShell.astro";
+import type { CarPoolTrip } from "../../../../modules/app/carPoolStore";
 
 const { id } = Astro.params;
 if (!id) {
   throw new Error("Group ID is required");
 }
 
-// Load trip history server-side
-let tripHistory = { trips: [] };
-let loadError = null;
+let tripHistory: CarPoolTrip[] = [];
+let groupDetail = null;
+let loadError: string | null = null;
 
 try {
-  const result = await Astro.callAction(server.listTripHistory, { groupId: id });
-  tripHistory = result?.trips || { trips: [] };
-} catch (e) {
-  console.error("Error loading trip history:", e);
-  loadError = e instanceof Error ? e.message : String(e);
+  const [tripResult, detailResult] = await Promise.all([
+    Astro.callAction(server.listTripHistory, { groupId: id }),
+    Astro.callAction(server.loadGroupDetail, { groupId: id }),
+  ]);
+
+  tripHistory = (tripResult?.data?.trips as any) || [];
+  groupDetail = detailResult?.data?.group || null;
+} catch (error) {
+  console.error("Error loading trip history:", error);
+  loadError = error instanceof Error ? error.message : String(error);
 }
 
-// Helper to format date
-function formatDate(date: Date | string): string {
-  const d = new Date(date);
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-}
+const initialState = {
+  groupId: id,
+  tripHistory,
+  loadError,
+};
+
+const groupName = groupDetail?.name ?? "Group";
 ---
 
-<AppShell>
-  <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-    <div class="container max-w-4xl mx-auto px-4 py-8 md:py-12">
-      <!-- Header -->
-      <div class="mb-8">
-        <div class="flex items-center justify-between">
-          <div>
-            <button
-              onclick="window.location.href = `/app/groups/${id}`"
-              class="text-blue-600 hover:text-blue-700 font-medium mb-2 inline-flex items-center"
-            >
-              ← Back to Group
-            </button>
-            <h1 class="text-4xl font-bold text-slate-900">Trip History</h1>
-            <p class="text-lg text-slate-600 mt-2">View all logged trips for this group</p>
-          </div>
-          <button
-            onclick="window.location.href = `/app/groups/${id}`"
-            class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition"
-          >
-            Log New Trip
-          </button>
-        </div>
-      </div>
-
-      <!-- Error Alert -->
-      {loadError && (
-        <div class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-          <h3 class="text-red-900 font-semibold mb-1">Error Loading Trips</h3>
-          <p class="text-red-800 text-sm">{loadError}</p>
-        </div>
-      )}
-
-      <!-- Main Container with Alpine Store -->
+<AppShell title={`Trips – ${groupName}`} description="Review the Car Pool trip log inside the protected workspace.">
+  <section class="av-section">
+    <AvContainer>
       <div
-        x-data="Object.assign($store.carPoolApp, {
-          init() {
-            this.selectedGroupId = '{id}';
-            this.tripHistory = {tripHistory}.trips || [];
-            this.currentView = 'trip-history';
-          }
-        })"
-        x-effect="init()"
-        class="space-y-6"
+        class="av-auth-stack-lg"
+        x-data="$store.carPoolApp"
+        x-init="initializeTripHistoryPage($el.dataset.initial)"
+        data-initial={JSON.stringify(initialState)}
       >
-        <!-- Loading State -->
-        <template x-if="isLoading">
-          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p class="text-slate-600">Loading trips...</p>
-          </div>
-        </template>
-
-        <!-- No Trips State -->
-        <template x-if="!isLoading && tripHistory.length === 0">
-          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
-            <div class="text-6xl mb-4">📅</div>
-            <h2 class="text-2xl font-bold text-slate-900 mb-2">No Trips Logged Yet</h2>
-            <p class="text-slate-600 mb-6">Start logging your car pool trips to track fairness and contributions</p>
-            <button
-              onclick="window.location.href = `/app/groups/${id}`"
-              class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg transition"
-            >
-              Log First Trip
-            </button>
-          </div>
-        </template>
-
-        <!-- Trips List -->
-        <template x-if="!isLoading && tripHistory.length > 0">
-          <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div class="px-6 py-4 border-b border-slate-200">
-              <h3 class="text-lg font-semibold text-slate-900">All Trips</h3>
+        <AvCard className="av-auth-stack-md">
+          <div class="av-row-between app-row-top">
+            <div class="av-auth-stack-xs">
+              <a href={`/app/groups/${id}`} class="av-text-soft app-back-link">← Back to group</a>
+              <p class="av-kicker">Trips</p>
+              <h1 class="av-section-title">{groupName} trip history</h1>
+              <p class="av-text-soft">All logged trips stay inside the same app workspace instead of floating outside the shell.</p>
             </div>
+            <div class="av-row-wrap">
+              <AvButton type="button" variant="ghost" href={`/app/groups/${id}`}>Group overview</AvButton>
+            </div>
+          </div>
 
-            <div class="divide-y divide-slate-200">
+          <template x-if="error">
+            <div class="av-alert av-alert-danger" role="status" x-text="error"></div>
+          </template>
+        </AvCard>
+
+        <AvCard variant="soft" className="av-auth-stack-md">
+          <div class="av-row-between app-row-top">
+            <div>
+              <p class="av-kicker">Workspace</p>
+              <h2 class="av-card-heading">Logged trips</h2>
+            </div>
+            <p class="av-text-soft"><span x-text="tripHistory.length"></span> total</p>
+          </div>
+
+          <template x-if="tripHistory.length === 0">
+            <AvEmptyState
+              headline="No trips logged yet"
+              description="Return to the group workspace and use the standard trip drawer to record the first commute."
+            />
+          </template>
+
+          <template x-if="tripHistory.length > 0">
+            <div class="app-list-stack">
               <template x-for="trip in tripHistory" :key="trip.id">
-                <div class="px-6 py-4 hover:bg-slate-50 transition">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-4">
-                      <div>
-                        <p class="font-medium text-slate-900" x-text="formatDate(trip.tripDate)"></p>
-                        <p class="text-sm text-slate-600">
-                          Driver: <span x-text="trip.actualDriverId ? 'Assigned' : 'Not set'"></span>
-                        </p>
-                      </div>
-                    </div>
-
-                    <div class="flex items-center space-x-4">
-                      <div class="text-right">
-                        <p class="text-sm text-slate-600">
-                          <span x-text="trip.passengerCount || 0"></span> passengers,
-                          <span x-text="trip.absenteeCount || 0"></span> absent
-                        </p>
-                        <p class="text-sm text-slate-600" x-show="trip.petrolAmount || trip.tollAmount">
-                          $<span x-text="((trip.petrolAmount || 0) + (trip.tollAmount || 0)).toFixed(2)"></span>
-                        </p>
-                      </div>
-
-                      <button
-                        @click="window.location.href = `/app/groups/${id}/trips/${trip.id}`"
-                        class="text-blue-600 hover:text-blue-700 font-medium text-sm"
-                      >
-                        View →
-                      </button>
-                    </div>
+                <div class="app-list-row">
+                  <div class="av-auth-stack-xxs">
+                    <span class="app-list-title" x-text="formatDate(trip.tripDate)"></span>
+                    <p class="av-text-soft">
+                      Passengers: <span x-text="trip.passengerCount || 0"></span>
+                      · Absent: <span x-text="trip.absenteeCount || 0"></span>
+                    </p>
+                  </div>
+                  <div class="av-row-wrap">
+                    <span class="av-text-soft" x-show="trip.petrolAmount || trip.tollAmount">
+                      Total cost: $
+                      <span x-text="((trip.petrolAmount || 0) + (trip.tollAmount || 0)).toFixed(2)"></span>
+                    </span>
+                    <AvButton type="button" size="sm" variant="ghost" @click="navigateToTripDetail(trip.id)">View</AvButton>
                   </div>
                 </div>
               </template>
             </div>
-          </div>
-        </template>
-
-        <!-- Error State -->
-        <template x-if="error && !isLoading">
-          <div class="bg-red-50 border border-red-200 rounded-lg p-4">
-            <h3 class="text-red-900 font-semibold mb-1">Error</h3>
-            <p class="text-red-800 text-sm" x-text="error"></p>
-          </div>
-        </template>
+          </template>
+        </AvCard>
       </div>
-    </div>
-  </div>
+    </AvContainer>
+  </section>
 </AppShell>

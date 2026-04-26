@@ -107,30 +107,69 @@ export class CarPoolAppStore extends AvBaseStore {
     notes: "",
   };
 
+  initializeIndex(serializedState?: string) {
+    const state = this.parseState(serializedState);
+    this.groups = Array.isArray(state.groups) ? state.groups : [];
+    this.selectedGroupId = null;
+    this.selectedGroupDetail = { group: null, members: [] };
+    this.tripHistory = [];
+    this.selectedTrip = { trip: null, participants: [] };
+    this.currentView = "groups";
+    this.error = typeof state.loadError === "string" && state.loadError.length > 0 ? state.loadError : null;
+  }
+
+  initializeGroupWorkspace(serializedState?: string) {
+    const state = this.parseState(serializedState);
+    this.selectedGroupId = typeof state.groupId === "string" ? state.groupId : null;
+    this.selectedGroupDetail = {
+      group: state.groupDetail?.group ?? null,
+      members: Array.isArray(state.groupDetail?.members) ? state.groupDetail.members : [],
+    };
+    this.tripHistory = Array.isArray(state.tripHistory) ? state.tripHistory : [];
+    this.selectedTrip = { trip: null, participants: [] };
+    this.currentView = "group-dashboard";
+    this.error = typeof state.loadError === "string" && state.loadError.length > 0 ? state.loadError : null;
+  }
+
+  initializeTripHistoryPage(serializedState?: string) {
+    const state = this.parseState(serializedState);
+    this.selectedGroupId = typeof state.groupId === "string" ? state.groupId : null;
+    this.tripHistory = Array.isArray(state.tripHistory) ? state.tripHistory : [];
+    this.currentView = "trip-history";
+    this.error = typeof state.loadError === "string" && state.loadError.length > 0 ? state.loadError : null;
+  }
+
+  initializeTripDetailPage(serializedState?: string) {
+    const state = this.parseState(serializedState);
+    this.selectedGroupId = typeof state.groupId === "string" ? state.groupId : null;
+    this.selectedTrip = {
+      trip: state.tripDetail?.trip ?? null,
+      participants: Array.isArray(state.tripDetail?.participants) ? state.tripDetail.participants : [],
+    };
+    this.currentView = "trip-detail";
+    this.error = typeof state.loadError === "string" && state.loadError.length > 0 ? state.loadError : null;
+  }
+
   // ============================================================================
   // NAVIGATION
   // ============================================================================
 
   navigateToGroups() {
-    this.currentView = 'groups';
-    this.selectedGroupId = null;
-    this.loadUserGroups();
+    this.visit("/app");
   }
 
   navigateToGroup(groupId: string) {
-    this.selectedGroupId = groupId;
-    this.currentView = 'group-dashboard';
-    this.loadGroupDetail();
+    this.visit(`/app/groups/${groupId}`);
   }
 
   navigateToTripHistory() {
-    this.currentView = 'trip-history';
-    this.loadTripHistory();
+    if (!this.selectedGroupId) return;
+    this.visit(`/app/groups/${this.selectedGroupId}/trips`);
   }
 
   navigateToTripDetail(tripId: string) {
-    this.currentView = 'trip-detail';
-    this.loadTripDetail(tripId);
+    if (!this.selectedGroupId) return;
+    this.visit(`/app/groups/${this.selectedGroupId}/trips/${tripId}`);
   }
 
   // ============================================================================
@@ -141,8 +180,8 @@ export class CarPoolAppStore extends AvBaseStore {
     this.isLoading = true;
     this.error = null;
     try {
-      const result = await server.loadUserGroups();
-      this.groups = result.groups || [];
+      const result = await server.loadUserGroups({});
+      this.groups = (result.data?.groups as any) || [];
     } catch (err: any) {
       this.error = err.message || "Failed to load groups";
     } finally {
@@ -158,8 +197,8 @@ export class CarPoolAppStore extends AvBaseStore {
     try {
       const result = await server.loadGroupDetail({ groupId: this.selectedGroupId });
       this.selectedGroupDetail = {
-        group: result.group,
-        members: result.members || [],
+        group: (result.data?.group as any) ?? null,
+        members: (result.data?.members as any) || [],
       };
     } catch (err: any) {
       this.error = err.message || "Failed to load group detail";
@@ -191,9 +230,10 @@ export class CarPoolAppStore extends AvBaseStore {
     this.error = null;
     try {
       const result = await server.createGroup(this.createGroupForm);
-      await this.loadUserGroups();
       this.closeCreateGroupDrawer();
-      this.navigateToGroup(result.groupId);
+      if (result.data?.groupId) {
+        this.navigateToGroup(result.data.groupId);
+      }
     } catch (err: any) {
       this.error = err.message || "Failed to create group";
     } finally {
@@ -321,6 +361,7 @@ export class CarPoolAppStore extends AvBaseStore {
         notes: this.createTripForm.notes,
       });
       await this.loadGroupDetail();
+      await this.loadTripHistory();
       this.closeCreateTripDrawer();
     } catch (err: any) {
       this.error = err.message || "Failed to create trip";
@@ -336,7 +377,7 @@ export class CarPoolAppStore extends AvBaseStore {
     this.error = null;
     try {
       const result = await server.listTripHistory({ groupId: this.selectedGroupId });
-      this.tripHistory = result.trips || [];
+      this.tripHistory = (result.data?.trips as any) || [];
     } catch (err: any) {
       this.error = err.message || "Failed to load trip history";
     } finally {
@@ -350,8 +391,8 @@ export class CarPoolAppStore extends AvBaseStore {
     try {
       const result = await server.loadTripDetail({ tripId });
       this.selectedTrip = {
-        trip: result.trip,
-        participants: result.participants || [],
+        trip: (result.data?.trip as any) ?? null,
+        participants: (result.data?.participants as any) || [],
       };
     } catch (err: any) {
       this.error = err.message || "Failed to load trip detail";
@@ -379,6 +420,7 @@ export class CarPoolAppStore extends AvBaseStore {
   }
 
   getNextDrivers(count: number = 3): CarPoolMember[] {
+    if (!this.selectedGroupDetail.members.length) return [];
     const today = new Date();
     const drivers: CarPoolMember[] = [];
     for (let i = 1; i <= count; i++) {
@@ -389,6 +431,21 @@ export class CarPoolAppStore extends AvBaseStore {
       drivers.push(this.selectedGroupDetail.members[index]);
     }
     return drivers;
+  }
+
+  private parseState(serializedState?: string) {
+    if (!serializedState) return {};
+    try {
+      return JSON.parse(serializedState);
+    } catch {
+      return {};
+    }
+  }
+
+  private visit(path: string) {
+    if (typeof window !== "undefined") {
+      window.location.href = path;
+    }
   }
 }
 
