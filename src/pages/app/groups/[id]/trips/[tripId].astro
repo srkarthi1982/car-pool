@@ -13,6 +13,9 @@ let loadError: string | null = null;
 
 try {
   const result = await Astro.callAction(server.loadTripDetail, { tripId });
+  if (result?.error) {
+    loadError = result.error.message ?? "Unable to load trip";
+  }
   tripDetail = result?.data?.trip
     ? {
         trip: result.data.trip,
@@ -22,6 +25,10 @@ try {
 } catch (error) {
   console.error("Error loading trip detail:", error);
   loadError = error instanceof Error ? error.message : String(error);
+}
+
+if (!tripDetail && loadError) {
+  return Astro.redirect(`/app/groups/${id}/trips`);
 }
 
 const initialState = {

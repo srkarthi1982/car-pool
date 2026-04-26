@@ -299,6 +299,10 @@ export class CarPoolAppStore extends AvBaseStore {
   // ============================================================================
 
   openCreateTripDrawer() {
+    if (this.selectedGroupDetail.group?.isArchived) {
+      this.error = "Archived groups cannot log new trips";
+      return;
+    }
     this.showCreateTripDrawer = true;
     this.error = null;
     this.createTripForm = {

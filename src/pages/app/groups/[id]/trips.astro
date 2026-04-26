@@ -19,11 +19,19 @@ try {
     Astro.callAction(server.loadGroupDetail, { groupId: id }),
   ]);
 
+  if (tripResult?.error || detailResult?.error) {
+    loadError = tripResult?.error?.message ?? detailResult?.error?.message ?? "Unable to load trip history";
+  }
+
   tripHistory = (tripResult?.data?.trips as any) || [];
   groupDetail = detailResult?.data?.group || null;
 } catch (error) {
   console.error("Error loading trip history:", error);
   loadError = error instanceof Error ? error.message : String(error);
+}
+
+if (loadError && !groupDetail) {
+  return Astro.redirect("/app");
 }
 
 const initialState = {

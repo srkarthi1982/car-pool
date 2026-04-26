@@ -1,8 +1,17 @@
-import { defineAction } from "astro:actions";
-import { db, eq, and, desc, sql } from "astro:db";
+import { ActionError, defineAction } from "astro:actions";
+import {
+  db,
+  eq,
+  and,
+  desc,
+  sql,
+  CarPoolGroups,
+  CarPoolMembers,
+  CarPoolTrips,
+  CarPoolTripParticipants,
+} from "astro:db";
 import { z } from "astro:schema";
 import { requireUser } from "./_guards";
-import { CarPoolGroups, CarPoolMembers, CarPoolTrips, CarPoolTripParticipants } from "../../db/tables";
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -21,17 +30,69 @@ async function getActiveMembers(groupId: string) {
     .orderBy((CarPoolMembers as any).rotationOrder);
 }
 
-// Get suggested driver for a date
-async function getSuggestedDriverForDate(groupId: string, tripDate: Date): Promise<string | null> {
-  const members = await getActiveMembers(groupId);
+async function getPreviousTrips(groupId: string, beforeTripDate: Date) {
+  const trips = await db
+    .select()
+    .from(CarPoolTrips as any)
+    .where(eq((CarPoolTrips as any).groupId, groupId))
+    .orderBy(desc((CarPoolTrips as any).tripDate));
+
+  return trips.filter((trip) => new Date(trip.tripDate).getTime() < beforeTripDate.getTime());
+}
+
+function getNextMemberInRotation(members: any[], startRotationOrder: number | null) {
   if (members.length === 0) return null;
 
-  // For simplicity, use a deterministic rotation based on date
-  // In a real implementation, this could be more sophisticated
-  const dateStr = tripDate.toISOString().split('T')[0];
-  const hash = dateStr.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-  const index = hash % members.length;
-  return members[index].userId;
+  if (startRotationOrder == null) {
+    return members[0];
+  }
+
+  const sorted = [...members].sort((a, b) => a.rotationOrder - b.rotationOrder);
+  const next = sorted.find((member) => member.rotationOrder > startRotationOrder);
+  return next ?? sorted[0];
+}
+
+async function getRotationContext(groupId: string, tripDate: Date, absenteeIds: string[]) {
+  const members = await getActiveMembers(groupId);
+  const presentMembers = members.filter((member) => !absenteeIds.includes(member.id));
+  const previousTrips = await getPreviousTrips(groupId, tripDate);
+  const lastTrip = previousTrips[0] ?? null;
+
+  let lastDriverMember: any = null;
+  if (lastTrip?.actualDriverId) {
+    lastDriverMember = members.find(
+      (member) => member.id === lastTrip.actualDriverId || member.userId === lastTrip.actualDriverId,
+    ) ?? null;
+  }
+
+  const baseCandidate = getNextMemberInRotation(members, lastDriverMember?.rotationOrder ?? null);
+  if (!baseCandidate) {
+    return {
+      members,
+      presentMembers,
+      baseCandidate: null,
+      assignedDriver: null,
+    };
+  }
+
+  const sortedMembers = [...members].sort((a, b) => a.rotationOrder - b.rotationOrder);
+  const startIndex = sortedMembers.findIndex((member) => member.id === baseCandidate.id);
+  let assignedDriver = null;
+
+  for (let offset = 0; offset < sortedMembers.length; offset += 1) {
+    const member = sortedMembers[(startIndex + offset) % sortedMembers.length];
+    if (presentMembers.some((present) => present.id === member.id)) {
+      assignedDriver = member;
+      break;
+    }
+  }
+
+  return {
+    members,
+    presentMembers,
+    baseCandidate,
+    assignedDriver,
+  };
 }
 
 // Calculate fairness for a member
@@ -47,8 +108,8 @@ async function calculateMemberFairness(memberId: string) {
   let missedRideCount = 0;
 
   for (const p of participations) {
-    if (p.role === 'driver') driveCount++;
-    if (p.role === 'passenger') rideCount++;
+    if (p.role === 'driver' && p.attendanceStatus === 'present') driveCount++;
+    if (p.role === 'passenger' && p.attendanceStatus === 'present') rideCount++;
     if (p.attendanceStatus === 'absent') absenceCount++;
     if (p.missedRide) missedRideCount++;
   }
@@ -144,7 +205,9 @@ export const server = {
           eq((CarPoolMembers as any).isActive, true)
         ));
 
-      if (membership.length === 0) throw new Error("Not a member of this group");
+      if (membership.length === 0) {
+        throw new ActionError({ code: "FORBIDDEN", message: "Not a member of this group" });
+      }
 
       const group = await db
         .select()
@@ -152,7 +215,9 @@ export const server = {
         .where(eq((CarPoolGroups as any).id, input.groupId))
         .limit(1);
 
-      if (group.length === 0) throw new Error("Group not found");
+      if (group.length === 0) {
+        throw new ActionError({ code: "NOT_FOUND", message: "Group not found" });
+      }
 
       const members = await getActiveMembers(input.groupId);
 
@@ -190,7 +255,9 @@ export const server = {
         .where(and(eq((CarPoolGroups as any).id, input.groupId), eq((CarPoolGroups as any).ownerId, user.id)))
         .limit(1);
 
-      if (group.length === 0) throw new Error("Not group owner");
+      if (group.length === 0) {
+        throw new ActionError({ code: "FORBIDDEN", message: "Not group owner" });
+      }
 
       const existingMembers = await getActiveMembers(input.groupId);
       const maxOrder = existingMembers.length > 0 ? Math.max(...existingMembers.map(m => m.rotationOrder)) : -1;
@@ -238,7 +305,9 @@ export const server = {
           eq((CarPoolMembers as any).isActive, true)
         ))
 
-      if (membership.length === 0) throw new Error("Not a member of this group");
+      if (membership.length === 0) {
+        throw new ActionError({ code: "FORBIDDEN", message: "Not a member of this group" });
+      }
 
       // Check group not archived
       const group = await db
@@ -247,7 +316,22 @@ export const server = {
         .where(eq((CarPoolGroups as any).id, input.groupId))
         .limit(1);
 
-      if (group.length === 0 || group[0].isArchived) throw new Error("Group not found or archived");
+      if (group.length === 0) {
+        throw new ActionError({ code: "NOT_FOUND", message: "Group not found" });
+      }
+      if (group[0].isArchived) {
+        throw new ActionError({ code: "CONFLICT", message: "Archived groups cannot log new trips" });
+      }
+
+      const tripDate = new Date(input.tripDate);
+      if (Number.isNaN(tripDate.getTime())) {
+        throw new ActionError({ code: "BAD_REQUEST", message: "Trip date is invalid" });
+      }
+
+      const workingDays = Array.isArray(group[0].workingDays) ? group[0].workingDays : [];
+      if (workingDays.length > 0 && !workingDays.includes(tripDate.getDay())) {
+        throw new ActionError({ code: "BAD_REQUEST", message: "Trip date is outside the group's working days" });
+      }
 
       // Check no duplicate trip date
       const existingTrip = await db
@@ -255,46 +339,54 @@ export const server = {
         .from(CarPoolTrips as any)
         .where(and(
           eq((CarPoolTrips as any).groupId, input.groupId),
-          eq((CarPoolTrips as any).tripDate, new Date(input.tripDate))
+          eq((CarPoolTrips as any).tripDate, tripDate)
         ));
 
-      if (existingTrip.length > 0) throw new Error("Trip already exists for this date");
+      if (existingTrip.length > 0) {
+        throw new ActionError({ code: "CONFLICT", message: "Trip already exists for this date" });
+      }
 
-      // Get all active members
-      const allMembers = await getActiveMembers(input.groupId);
+      const rotation = await getRotationContext(input.groupId, tripDate, input.absentees);
+      const allMembers = rotation.members;
+      const presentMembers = rotation.presentMembers;
       const memberMap = new Map(allMembers.map(m => [m.id, m]));
 
       // Validate driver
-      if (!memberMap.has(input.actualDriverId)) throw new Error("Invalid driver");
+      if (!memberMap.has(input.actualDriverId)) {
+        throw new ActionError({ code: "BAD_REQUEST", message: "Invalid driver" });
+      }
       const driver = memberMap.get(input.actualDriverId)!;
+      if (input.absentees.includes(input.actualDriverId)) {
+        throw new ActionError({ code: "BAD_REQUEST", message: "Actual driver must be present" });
+      }
 
       // Validate passengers and absentees
       const passengerSet = new Set(input.passengers);
-      const absenteeSet = new Set(input.absentees);
 
       for (const pid of input.passengers) {
-        if (!memberMap.has(pid)) throw new Error("Invalid passenger");
-        if (pid === input.actualDriverId) throw new Error("Driver cannot be passenger");
+        if (!memberMap.has(pid)) throw new ActionError({ code: "BAD_REQUEST", message: "Invalid passenger" });
+        if (pid === input.actualDriverId) throw new ActionError({ code: "BAD_REQUEST", message: "Driver cannot be passenger" });
       }
 
       for (const aid of input.absentees) {
-        if (!memberMap.has(aid)) throw new Error("Invalid absentee");
-        if (passengerSet.has(aid)) throw new Error("Absent member cannot be passenger");
+        if (!memberMap.has(aid)) throw new ActionError({ code: "BAD_REQUEST", message: "Invalid absentee" });
+        if (passengerSet.has(aid)) throw new ActionError({ code: "BAD_REQUEST", message: "Absent member cannot be passenger" });
       }
 
-      // Check at least 2 active members
-      if (allMembers.length < 2) throw new Error("Group must have at least 2 active members");
+      // Check at least 2 present members
+      if (presentMembers.length < 2) {
+        throw new ActionError({ code: "BAD_REQUEST", message: "Trip requires at least 2 present members" });
+      }
 
       // Create trip
       const tripId = generateId();
-      const tripDate = new Date(input.tripDate);
 
       await db.insert(CarPoolTrips as any).values({
         id: tripId,
         groupId: input.groupId,
         tripDate,
-        assignedDriverId: await getSuggestedDriverForDate(input.groupId, tripDate),
-        actualDriverId: driver.userId,
+        assignedDriverId: rotation.assignedDriver?.id ?? null,
+        actualDriverId: driver.id,
         petrolAmount: input.petrolAmount,
         tollAmount: input.tollAmount,
         notes: input.notes,
@@ -334,8 +426,10 @@ export const server = {
       // Absentees
       for (const aid of input.absentees) {
         const member = memberMap.get(aid)!;
-        // Check if they would have been a passenger in normal rotation
-        const wouldBePassenger = driver.userId !== member.userId; // Simple check
+        const wouldBePassenger =
+          rotation.baseCandidate != null &&
+          rotation.baseCandidate.id !== member.id &&
+          presentMembers.length >= 2;
 
         participants.push({
           id: generateId(),
@@ -374,7 +468,9 @@ export const server = {
           eq((CarPoolMembers as any).isActive, true)
         ));
 
-      if (membership.length === 0) throw new Error("Not a member of this group");
+      if (membership.length === 0) {
+        throw new ActionError({ code: "FORBIDDEN", message: "Not a member of this group" });
+      }
 
       const trips = await db
         .select()
@@ -418,7 +514,9 @@ export const server = {
         .where(eq((CarPoolTrips as any).id, input.tripId))
         .limit(1);
 
-      if (trip.length === 0) throw new Error("Trip not found");
+      if (trip.length === 0) {
+        throw new ActionError({ code: "NOT_FOUND", message: "Trip not found" });
+      }
 
       // Check membership in group
       const membership = await db
@@ -430,7 +528,9 @@ export const server = {
           eq((CarPoolMembers as any).isActive, true)
         ));
 
-      if (membership.length === 0) throw new Error("Not authorized to view this trip");
+      if (membership.length === 0) {
+        throw new ActionError({ code: "FORBIDDEN", message: "Not authorized to view this trip" });
+      }
 
       const participants = await db
         .select()

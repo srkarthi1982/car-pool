@@ -23,6 +23,10 @@ try {
     Astro.callAction(server.listTripHistory, { groupId: id }),
   ]);
 
+  if (detailResult?.error || tripResult?.error) {
+    loadError = detailResult?.error?.message ?? tripResult?.error?.message ?? "Unable to load group workspace";
+  }
+
   groupDetail = detailResult?.data?.group
     ? {
         group: detailResult.data.group,
@@ -33,6 +37,10 @@ try {
 } catch (error) {
   console.error("Error loading group workspace:", error);
   loadError = error instanceof Error ? error.message : String(error);
+}
+
+if (!groupDetail && loadError) {
+  return Astro.redirect("/app");
 }
 
 const initialState = {
@@ -64,7 +72,13 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
             </div>
             <div class="av-row-wrap">
               <AvButton type="button" variant="ghost" @click="openAddMembersDrawer()">Add members</AvButton>
-              <AvButton type="button" @click="openCreateTripDrawer()">Log trip</AvButton>
+              <AvButton
+                type="button"
+                @click="openCreateTripDrawer()"
+                :disabled="selectedGroupDetail.group?.isArchived"
+              >
+                Log trip
+              </AvButton>
             </div>
           </div>
 
@@ -161,7 +175,13 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                   </div>
                   <div class="av-row-wrap">
                     <AvButton type="button" variant="ghost" @click="navigateToTripHistory()">View all trips</AvButton>
-                    <AvButton type="button" @click="openCreateTripDrawer()">Log trip</AvButton>
+                    <AvButton
+                      type="button"
+                      @click="openCreateTripDrawer()"
+                      :disabled="selectedGroupDetail.group?.isArchived"
+                    >
+                      Log trip
+                    </AvButton>
                   </div>
                 </div>
 

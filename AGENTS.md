@@ -145,6 +145,8 @@ Do NOT implement complex rotation now.
 
 ## Task Log (Newest first)
 
+- 2026-04-26 (i): Deep verification pass completed against `docs/app-spec.md` using real action requests with signed session cookies and local DB inspection. Fixed server/client runtime and spec-alignment bugs: switched server actions to generated `astro:db` table exports, corrected trip ownership/membership error handling, enforced present-member trip validation, blocked archived-group trip creation, fixed actual/assigned driver member-id storage, corrected fairness counts so absences do not inflate drive totals, and added safe redirects for invalid/non-owned group and trip routes. Verification: `npm run db:push` ✅, `npm run typecheck` ✅, `npm run build` ✅, browser bundle free of `process`/`libsql`/`astro:db` leakage ✅, deep runtime scenarios for group/member/trip rotation, absences, missed rides, validation, owner safety, and archived behavior ✅.
+
 - 2026-04-26 (h): Fixed create-group action 400 on `/app` by normalizing drawer checkbox `workingDays` values from Alpine string inputs into validated `number[]` payloads before calling `createGroup`. Added client-side empty-selection guard. Verification: `npm run typecheck` ✅.
 
 - 2026-04-26 (g): Fixed browser runtime error `ReferenceError: process is not defined` by removing direct client import of `src/actions` from `carPoolStore` and switching the Alpine store to the approved `astro:actions` client facade. This stopped `astro:db` / `libsql` server code from leaking into the browser bundle. Verification: `npm run typecheck` ✅, `npm run build` ✅, built client bundle no longer contains `process`, `libsql`, or `ASTRO_DB_APP_TOKEN`.
