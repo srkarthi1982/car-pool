@@ -288,8 +288,6 @@ export const server = {
       actualDriverId: z.string(),
       passengers: z.array(z.string()), // member IDs
       absentees: z.array(z.string()), // member IDs
-      petrolAmount: z.number().optional(),
-      tollAmount: z.number().optional(),
       notes: z.string().optional(),
     }),
     handler: async (input, context) => {
@@ -387,8 +385,6 @@ export const server = {
         tripDate,
         assignedDriverId: rotation.assignedDriver?.id ?? null,
         actualDriverId: driver.id,
-        petrolAmount: input.petrolAmount,
-        tollAmount: input.tollAmount,
         notes: input.notes,
         createdAt: new Date(),
         updatedAt: new Date(),

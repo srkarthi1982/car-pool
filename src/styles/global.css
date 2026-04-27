@@ -96,8 +96,12 @@
   font-weight: 600;
 }
 
-.av-drawer .app-label {
-  color: rgba(226, 232, 240, 0.88);
+.av-drawer-overlay .av-drawer :where(.app-label, .app-stat-label) {
+  color: rgba(241, 245, 249, 0.92) !important;
+}
+
+.av-drawer-overlay .av-drawer :where(.av-text-soft) {
+  color: rgba(203, 213, 225, 0.82);
 }
 
 .app-input,

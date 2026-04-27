@@ -417,20 +417,6 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                   </div>
                 </div>
 
-                <div class="app-field app-drawer-section">
-                  <span class="app-label">Costs</span>
-                  <div class="app-inline-grid">
-                  <label class="app-field">
-                    <span class="app-label">Petrol amount</span>
-                    <input type="number" step="0.01" min="0" class="app-input" x-model="createTripForm.petrolAmount" />
-                  </label>
-                  <label class="app-field">
-                    <span class="app-label">Toll amount</span>
-                    <input type="number" step="0.01" min="0" class="app-input" x-model="createTripForm.tollAmount" />
-                  </label>
-                  </div>
-                </div>
-
                 <label class="app-field app-drawer-section">
                   <span class="app-label">Notes</span>
                   <textarea class="app-input app-textarea" x-model="createTripForm.notes" rows="3" placeholder="Optional trip notes"></textarea>

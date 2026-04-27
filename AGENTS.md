@@ -31,7 +31,7 @@ This file records what was built/changed for the car-pool repo. Read first.
 - **CarPoolGroups**: Shared group with rotation type (simple/complex), creator, dates
 - **CarPoolGroupMembers**: Fixed group membership with real Ansiversa user IDs and sort order
 - **CarPoolWorkingDays**: Configurable working days (0-6 for Sun-Sat) per group  
-- **CarPoolTrips**: Trip records with ownership, driver assignments, costs, attendance
+- **CarPoolTrips**: Trip records with ownership, driver assignments, notes, attendance
 
 ### Data Flow
 
@@ -40,7 +40,7 @@ This file records what was built/changed for the car-pool repo. Read first.
 3. Group has configurable working days and start date
 4. Simple rotation: calculates suggested driver based on member order and working days
 5. Trip created by any member → can only be edited by creator
-6. Trips track petrol, toll, suggested/actual driver, notes, presence/absence
+6. Trips track suggested/actual driver, notes, presence/absence
 
 ---
 
@@ -137,13 +137,17 @@ Schema supports `complex_rotation` type but not yet implemented:
 - UI shows rotation type, complex rotation is disabled/not-yet-active
 - Future fairness tables can be added without breaking current schema
 - Attendance tracking ready (presentUserIdsJson, absentUserIdsJson)
-- Cost tracking ready (petrolAmount, tollAmount)
+- Cost tracking is explicitly out of scope for V1; petrol, toll, splitting, settlement, and payment handling are not active runtime concerns.
 
 Do NOT implement complex rotation now.
 
 ---
 
 ## Task Log (Newest first)
+
+- 2026-04-27 (e): Removed petrol/toll scope from active Car Pool V1 runtime and product spec. Removed petrol/toll fields from schema definition, action input/insert payloads, Alpine trip state/types, trip drawer, trip history, trip detail, and seed script; product truth now states V1 handles groups, members, rotation, attendance, trip logs, and fairness only. Verification: `npm run db:push` ✅, `npm run typecheck` ✅, `npm run build` ✅.
+
+- 2026-04-27 (d): Fixed drawer label visibility regression after UI polish by strengthening the drawer overlay-scoped label/helper text contrast rules in `src/styles/global.css`; no logic/schema changes. Verification: `npm run typecheck` ✅, `npm run build` ✅.
 
 - 2026-04-27 (c): Completed Astra-assigned Car Pool V1 UI polish pass without schema, server action, rotation, or fairness calculation changes. Improved `/app` group card hierarchy, group dashboard driver/next-driver/fairness/trip readability, trip detail summary and participant impact labels, and drawer section clarity while preserving existing AppShell/Av component patterns. Verification: `npm run typecheck` ✅, `npm run build` ✅, remote-backed runtime HTTP checks for `/app`, `/app/groups/1777305269408-24idtvlpl`, and `/app/groups/1777305269408-24idtvlpl/trips/1777306819812-seh2w4bql` returned 200 ✅.
 

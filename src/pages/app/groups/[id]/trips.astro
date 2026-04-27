@@ -97,13 +97,7 @@ const groupName = groupDetail?.name ?? "Group";
                       · Absent: <span x-text="trip.absenteeCount || 0"></span>
                     </p>
                   </div>
-                  <div class="av-row-wrap">
-                    <span class="av-text-soft" x-show="trip.petrolAmount || trip.tollAmount">
-                      Total cost: $
-                      <span x-text="((trip.petrolAmount || 0) + (trip.tollAmount || 0)).toFixed(2)"></span>
-                    </span>
-                    <AvButton type="button" size="sm" variant="ghost" @click="navigateToTripDetail(trip.id)">View</AvButton>
-                  </div>
+                  <AvButton type="button" size="sm" variant="ghost" @click="navigateToTripDetail(trip.id)">View</AvButton>
                 </div>
               </template>
             </div>

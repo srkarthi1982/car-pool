@@ -37,8 +37,6 @@ export interface CarPoolTrip {
   tripDate: Date;
   assignedDriverId?: string;
   actualDriverId?: string;
-  petrolAmount?: number;
-  tollAmount?: number;
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -104,8 +102,6 @@ export class CarPoolAppStore extends AvBaseStore {
     actualDriverId: "",
     passengers: [] as string[],
     absentees: [] as string[],
-    petrolAmount: "",
-    tollAmount: "",
     notes: "",
   };
 
@@ -312,8 +308,6 @@ export class CarPoolAppStore extends AvBaseStore {
       actualDriverId: "",
       passengers: [],
       absentees: [],
-      petrolAmount: "",
-      tollAmount: "",
       notes: "",
     };
   }
@@ -359,9 +353,6 @@ export class CarPoolAppStore extends AvBaseStore {
       return;
     }
 
-    const petrolAmount = this.createTripForm.petrolAmount ? parseFloat(this.createTripForm.petrolAmount) : undefined;
-    const tollAmount = this.createTripForm.tollAmount ? parseFloat(this.createTripForm.tollAmount) : undefined;
-
     this.isLoading = true;
     this.error = null;
     try {
@@ -371,8 +362,6 @@ export class CarPoolAppStore extends AvBaseStore {
         actualDriverId: this.createTripForm.actualDriverId,
         passengers: this.createTripForm.passengers,
         absentees: this.createTripForm.absentees,
-        petrolAmount,
-        tollAmount,
         notes: this.createTripForm.notes,
       });
       await this.loadGroupDetail();

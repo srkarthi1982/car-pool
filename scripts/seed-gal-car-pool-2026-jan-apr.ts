@@ -107,8 +107,6 @@ for (let index = 0; index < dates.length; index += 1) {
     tripDate,
     assignedDriverId: driver.id,
     actualDriverId: driver.id,
-    petrolAmount: null,
-    tollAmount: null,
     notes: "Jan-Apr 2026 commute backfill.",
     createdAt: timestamp,
     updatedAt: timestamp,

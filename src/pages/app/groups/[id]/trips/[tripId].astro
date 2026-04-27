@@ -99,10 +99,6 @@ const initialState = {
                   <p class="app-stat-label">Absent</p>
                   <p class="app-stat-value" x-text="getTripAbsentNames().length"></p>
                 </div>
-                <div class="app-stat-card">
-                  <p class="app-stat-label">Total cost</p>
-                  <p class="app-stat-value">$<span x-text="((selectedTrip.trip.petrolAmount || 0) + (selectedTrip.trip.tollAmount || 0)).toFixed(2)"></span></p>
-                </div>
               </div>
 
               <template x-if="selectedTrip.trip.notes">

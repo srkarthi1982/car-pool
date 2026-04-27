@@ -5,10 +5,19 @@
 Car Pool is a private commute fairness system for fixed office groups.
 
 It manages:
+- groups
+- members
 - driver rotation among present members
 - attendance-aware scheduling
 - trip logging
 - fairness tracking over time
+
+It does not manage:
+- petrol cost
+- toll cost
+- cost splitting
+- settlements
+- payments
 
 ---
 
@@ -28,9 +37,12 @@ It manages:
 - rotation engine
 - trip logging
 - fairness tracking (basic)
-- cost logging (informational only)
 
 ### EXCLUDED
+- petrol cost
+- toll cost
+- cost splitting
+- settlements
 - payments
 - GPS / maps
 - chat
@@ -81,8 +93,6 @@ It manages:
 - tripDate (unique per group)
 - assignedDriverId
 - actualDriverId
-- petrolAmount (optional)
-- tollAmount (optional)
 - notes
 - createdAt
 - updatedAt
@@ -201,14 +211,9 @@ transparency only
 no auto adjustment in V1
 
 ## 11. Cost Logging
-petrolAmount (optional)
-tollAmount (optional)
+Cost logging is out of scope for Car Pool V1.
 
-Rules:
-
-stored per trip
-no automatic splitting
-no settlement engine
+Car Pool V1 does not store or display petrol cost, toll cost, cost splitting, settlements, or payments.
 
 ## 12. Validation Rules
 group must have ≥ 2 active members
@@ -255,7 +260,7 @@ Trip Form
 driver select
 passenger checkboxes
 absence toggle
-cost input
+notes
 
 Fairness Panel
 drives per member
