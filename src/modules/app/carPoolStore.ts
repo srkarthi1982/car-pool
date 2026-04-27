@@ -46,6 +46,8 @@ export interface CarPoolTrip {
   absenteeCount?: number;
 }
 
+type FairnessStatus = "Driving more" | "Balanced" | "Receiving more";
+
 export interface TripParticipant {
   id: string;
   tripId: string;
@@ -423,6 +425,11 @@ export class CarPoolAppStore extends AvBaseStore {
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  formatShortDate(date: Date | string): string {
+    const d = new Date(date);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
   getTodaysDriver(): CarPoolMember | null {
     if (!this.selectedGroupDetail.members.length) return null;
     // Simple implementation - in real app, use rotation logic
@@ -444,6 +451,76 @@ export class CarPoolAppStore extends AvBaseStore {
       drivers.push(this.selectedGroupDetail.members[index]);
     }
     return drivers;
+  }
+
+  getNextDriverPreview(count: number = 3) {
+    return this.getNextDrivers(count).map((driver, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() + index + 1);
+      return {
+        id: `${driver.id}-${index}`,
+        driver,
+        date,
+      };
+    });
+  }
+
+  getFairnessScore(member?: CarPoolMember | null) {
+    return member?.fairness?.fairnessScore ?? 0;
+  }
+
+  getFairnessStatus(member?: CarPoolMember | null): FairnessStatus {
+    const score = this.getFairnessScore(member);
+    if (score > 1) return "Driving more";
+    if (score < -1) return "Receiving more";
+    return "Balanced";
+  }
+
+  getFairnessStatusClass(member?: CarPoolMember | null) {
+    const score = this.getFairnessScore(member);
+    if (score > 1) return "app-status-pill--positive";
+    if (score < -1) return "app-status-pill--negative";
+    return "app-status-pill--balanced";
+  }
+
+  getTripDriverName(trip?: CarPoolTrip | null) {
+    if (!trip?.actualDriverId) return "Driver not set";
+    return this.selectedGroupDetail.members.find((member) => member.id === trip.actualDriverId)?.name ?? "Driver not set";
+  }
+
+  getTripDriverParticipant() {
+    return this.selectedTrip.participants.find(
+      (participant) => participant.role === "driver" && participant.attendanceStatus === "present",
+    );
+  }
+
+  getTripPassengerNames() {
+    return this.selectedTrip.participants
+      .filter((participant) => participant.role === "passenger" && participant.attendanceStatus === "present")
+      .map((participant) => participant.member?.name || "Unknown member");
+  }
+
+  getTripAbsentNames() {
+    return this.selectedTrip.participants
+      .filter((participant) => participant.attendanceStatus === "absent")
+      .map((participant) => participant.member?.name || "Unknown member");
+  }
+
+  getParticipantRoleLabel(participant: TripParticipant) {
+    if (participant.attendanceStatus === "absent") return "Absent";
+    return participant.role === "driver" ? "Driver" : "Passenger";
+  }
+
+  getParticipantRoleClass(participant: TripParticipant) {
+    if (participant.attendanceStatus === "absent") return "app-status-pill--negative";
+    return participant.role === "driver" ? "app-status-pill--positive" : "app-status-pill--balanced";
+  }
+
+  getParticipantImpactLabel(participant: TripParticipant) {
+    if (participant.role === "driver" && participant.attendanceStatus === "present") return "+1 drive";
+    if (participant.missedRide) return "missed ride";
+    if (participant.attendanceStatus === "absent") return "absent";
+    return "+1 ride";
   }
 
   private parseState(serializedState?: string) {

@@ -73,10 +73,10 @@ const initialState = {
             <div class="app-group-grid">
               <template x-for="group in groups" :key="group.id">
                 <AvCard variant="soft" className="av-card--fullheight">
-                  <div class="av-auth-stack-sm">
+                  <div class="av-auth-stack-md">
                     <div class="av-row-between app-row-top">
                       <div class="av-auth-stack-xxs">
-                        <h3 class="av-card-heading" x-text="group.name"></h3>
+                        <h3 class="av-card-heading app-group-title" x-text="group.name"></h3>
                         <p class="av-text-soft">
                           Created <span x-text="formatDate(group.createdAt)"></span>
                         </p>
@@ -88,9 +88,16 @@ const initialState = {
                       ></span>
                     </div>
 
-                    <p class="av-text-soft">
-                      Working days configured: <span x-text="Array.isArray(group.workingDays) ? group.workingDays.length : 0"></span>
-                    </p>
+                    <div class="app-signal-grid">
+                      <div class="app-signal">
+                        <span class="app-signal__label">Working days</span>
+                        <strong x-text="Array.isArray(group.workingDays) ? group.workingDays.length : 0"></strong>
+                      </div>
+                      <div class="app-signal">
+                        <span class="app-signal__label">Workspace</span>
+                        <strong x-text="group.isArchived ? 'Locked' : 'Ready'"></strong>
+                      </div>
+                    </div>
 
                     <div class="av-row-wrap">
                       <AvButton

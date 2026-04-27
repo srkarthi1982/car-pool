@@ -97,17 +97,22 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                   <p class="av-text-soft">Keep the current driver suggestion and the next few turns visible at a glance.</p>
                 </div>
 
-                <div class="app-stat-grid">
-                  <div class="app-stat-card">
+                <div class="app-overview-grid">
+                  <div class="app-stat-card app-stat-card--hero">
                     <p class="app-stat-label">Today’s driver</p>
+                    <p class="app-stat-hint">Suggested by current rotation</p>
                     <template x-if="getTodaysDriver()">
                       <div class="av-auth-stack-xxs">
-                        <p class="app-stat-value" x-text="getTodaysDriver().name"></p>
-                        <p class="av-text-soft">Fairness score: <span x-text="getTodaysDriver().fairness?.fairnessScore || 0"></span></p>
+                        <p class="app-hero-driver" x-text="getTodaysDriver().name"></p>
+                        <span
+                          class="app-status-pill"
+                          :class="getFairnessStatusClass(getTodaysDriver())"
+                          x-text="getFairnessStatus(getTodaysDriver())"
+                        ></span>
                       </div>
                     </template>
                     <template x-if="!getTodaysDriver()">
-                      <p class="av-text-soft">No active members yet.</p>
+                      <p class="av-text-soft">No eligible driver today.</p>
                     </template>
                   </div>
 
@@ -119,12 +124,18 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                 </div>
 
                 <div class="av-auth-stack-xs">
-                  <p class="app-stat-label">Next drivers</p>
+                  <div>
+                    <p class="app-stat-label">Next drivers</p>
+                    <p class="av-text-soft">Upcoming rotation preview</p>
+                  </div>
                   <div class="app-list-stack">
-                    <template x-for="(driver, index) in getNextDrivers(3)" :key="`${driver.id}-${index}`">
+                    <template x-for="preview in getNextDriverPreview(3)" :key="preview.id">
                       <div class="app-list-row">
-                        <span class="app-list-title" x-text="driver.name"></span>
-                        <span class="av-text-soft" x-text="formatDate(new Date(Date.now() + ((index + 1) * 24 * 60 * 60 * 1000)))"></span>
+                        <div class="av-auth-stack-xxs">
+                          <span class="app-list-title" x-text="preview.driver.name"></span>
+                          <span class="av-text-soft">Next scheduled driver</span>
+                        </div>
+                        <span class="app-date-pill" x-text="formatShortDate(preview.date)"></span>
                       </div>
                     </template>
                   </div>
@@ -157,7 +168,14 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                             · Absences: <span x-text="member.fairness?.absenceCount || 0"></span>
                           </p>
                         </div>
-                        <span class="app-score-pill" x-text="member.fairness?.fairnessScore || 0"></span>
+                        <div class="app-row-end">
+                          <span
+                            class="app-status-pill"
+                            :class="getFairnessStatusClass(member)"
+                            x-text="getFairnessStatus(member)"
+                          ></span>
+                          <span class="app-score-pill" x-text="member.fairness?.fairnessScore || 0"></span>
+                        </div>
                       </div>
                     </template>
                   </div>
@@ -171,7 +189,7 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                   <div class="av-auth-stack-xs">
                     <p class="av-kicker">Trips</p>
                     <h2 class="av-card-heading">Recent trip log</h2>
-                    <p class="av-text-soft">Trip creation stays inside the standard drawer, while history remains anchored in the page.</p>
+                    <p class="av-text-soft">Each commute shows the driver, rider count, and absences at a glance.</p>
                   </div>
                   <div class="av-row-wrap">
                     <AvButton type="button" variant="ghost" @click="navigateToTripHistory()">View all trips</AvButton>
@@ -199,6 +217,8 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                         <div class="av-auth-stack-xxs">
                           <span class="app-list-title" x-text="formatDate(trip.tripDate)"></span>
                           <p class="av-text-soft">
+                            Driver: <span x-text="getTripDriverName(trip)"></span>
+                            ·
                             Passengers: <span x-text="trip.passengerCount || 0"></span>
                             · Absent: <span x-text="trip.absenteeCount || 0"></span>
                           </p>
@@ -221,7 +241,7 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                 <div class="av-auth-stack-xs">
                   <p class="av-kicker">Fairness</p>
                   <h2 class="av-card-heading">Contribution balance</h2>
-                  <p class="av-text-soft">Scores stay visible so the group can see who is driving more often than riding.</p>
+                  <p class="av-text-soft">Positive means the member has driven more than they have ridden.</p>
                 </div>
 
                 <template x-if="selectedGroupDetail.members.length === 0">
@@ -235,7 +255,8 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                         <div class="av-auth-stack-xxs">
                           <span class="app-list-title" x-text="member.name"></span>
                           <p class="av-text-soft">
-                            Missed rides: <span x-text="member.fairness?.missedRideCount || 0"></span>
+                            Score: <span x-text="member.fairness?.fairnessScore || 0"></span>
+                            · Missed rides: <span x-text="member.fairness?.missedRideCount || 0"></span>
                           </p>
                         </div>
                         <div class="app-fairness-meter">
@@ -244,7 +265,14 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                             :style="`width: ${Math.min(100, Math.max(8, 50 + ((member.fairness?.fairnessScore || 0) * 10)))}%`"
                           ></div>
                         </div>
-                        <span class="app-score-pill" x-text="member.fairness?.fairnessScore || 0"></span>
+                        <div class="app-row-end">
+                          <span
+                            class="app-status-pill"
+                            :class="getFairnessStatusClass(member)"
+                            x-text="getFairnessStatus(member)"
+                          ></span>
+                          <span class="app-score-pill" x-text="member.fairness?.fairnessScore || 0"></span>
+                        </div>
                       </div>
                     </template>
                   </div>
@@ -273,6 +301,13 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
           >
             <AvDrawer title="Add members" description="Add members into this car pool workspace.">
               <div class="av-auth-stack-md">
+                <div class="app-drawer-note">
+                  <p class="app-list-title">Members are added in rotation order.</p>
+                  <p class="av-text-soft" x-show="selectedGroupDetail.members.length > 0">
+                    New members are added after the current rotation order.
+                  </p>
+                </div>
+
                 <div class="app-field">
                   <span class="app-label">Quick add member</span>
                   <input
@@ -284,7 +319,7 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                 </div>
 
                 <div class="av-auth-stack-xs">
-                  <p class="av-text-soft">Staged members</p>
+                  <p class="app-label">Staged members</p>
                   <template x-if="addMembersForm.members.length === 0">
                     <p class="av-text-soft">No members queued yet.</p>
                   </template>
@@ -292,7 +327,10 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                     <div class="app-list-stack">
                       <template x-for="(member, index) in addMembersForm.members" :key="`${member.userId}-${index}`">
                         <div class="app-list-row">
-                          <span class="app-list-title" x-text="member.name"></span>
+                          <div class="av-auth-stack-xxs">
+                            <span class="app-list-title" x-text="member.name"></span>
+                            <span class="av-text-soft">Queued for next rotation slot</span>
+                          </div>
                           <AvButton type="button" size="sm" variant="ghost" @click="removeMemberFromForm(index)">Remove</AvButton>
                         </div>
                       </template>
@@ -328,13 +366,13 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
           >
             <AvDrawer title="Log trip" description="Record one commute without leaving the group workspace.">
               <form id="create-trip-form" class="av-auth-stack-md" @submit.prevent="submitCreateTrip()">
-                <label class="app-field">
-                  <span class="app-label">Trip date</span>
+                <label class="app-field app-drawer-section">
+                  <span class="app-label">Date</span>
                   <input type="date" class="app-input" x-model="createTripForm.tripDate" required />
                 </label>
 
-                <label class="app-field">
-                  <span class="app-label">Actual driver</span>
+                <label class="app-field app-drawer-section">
+                  <span class="app-label">Driver</span>
                   <select class="app-input" x-model="createTripForm.actualDriverId" required>
                     <option value="">Select driver</option>
                     <template x-for="member in selectedGroupDetail.members" :key="member.id">
@@ -343,8 +381,9 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                   </select>
                 </label>
 
-                <div class="app-field">
-                  <span class="app-label">Passengers</span>
+                <div class="app-field app-drawer-section">
+                  <span class="app-label">Present passengers</span>
+                  <p class="av-text-soft">Select riders who joined this commute. The driver is excluded.</p>
                   <div class="app-checklist">
                     <template x-for="member in selectedGroupDetail.members" :key="`${member.id}-passenger`">
                       <label class="app-check-item">
@@ -360,8 +399,9 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                   </div>
                 </div>
 
-                <div class="app-field">
+                <div class="app-field app-drawer-section app-drawer-section--muted">
                   <span class="app-label">Absentees</span>
+                  <p class="av-text-soft">Use only for members who missed this trip.</p>
                   <div class="app-checklist">
                     <template x-for="member in selectedGroupDetail.members" :key="`${member.id}-absent`">
                       <label class="app-check-item">
@@ -377,7 +417,9 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                   </div>
                 </div>
 
-                <div class="app-inline-grid">
+                <div class="app-field app-drawer-section">
+                  <span class="app-label">Costs</span>
+                  <div class="app-inline-grid">
                   <label class="app-field">
                     <span class="app-label">Petrol amount</span>
                     <input type="number" step="0.01" min="0" class="app-input" x-model="createTripForm.petrolAmount" />
@@ -386,9 +428,10 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                     <span class="app-label">Toll amount</span>
                     <input type="number" step="0.01" min="0" class="app-input" x-model="createTripForm.tollAmount" />
                   </label>
+                  </div>
                 </div>
 
-                <label class="app-field">
+                <label class="app-field app-drawer-section">
                   <span class="app-label">Notes</span>
                   <textarea class="app-input app-textarea" x-model="createTripForm.notes" rows="3" placeholder="Optional trip notes"></textarea>
                 </label>

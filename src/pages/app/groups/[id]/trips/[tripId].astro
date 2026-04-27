@@ -61,17 +61,43 @@ const initialState = {
         </AvCard>
 
         <template x-if="selectedTrip.trip">
-          <div class="app-section-grid">
+          <div class="av-auth-stack-lg">
             <AvCard variant="soft" className="av-auth-stack-md">
               <div class="av-auth-stack-xs">
-                <p class="av-kicker">Overview</p>
+                <p class="av-kicker">Trip summary</p>
                 <h2 class="av-card-heading" x-text="formatDate(selectedTrip.trip.tripDate)"></h2>
+              </div>
+
+              <div class="app-trip-summary">
+                <div class="av-auth-stack-xxs">
+                  <p class="app-stat-label">Driver</p>
+                  <p class="app-hero-driver">
+                    <span x-text="getTripDriverParticipant()?.member?.name || 'Driver not set'"></span>
+                    drove
+                  </p>
+                </div>
+                <div class="app-summary-lines">
+                  <p class="av-text-soft">
+                    Passengers:
+                    <span x-text="getTripPassengerNames().length ? getTripPassengerNames().join(', ') : 'None'"></span>
+                  </p>
+                  <template x-if="getTripAbsentNames().length > 0">
+                    <p class="av-text-soft">
+                      Absent:
+                      <span x-text="getTripAbsentNames().join(', ')"></span>
+                    </p>
+                  </template>
+                </div>
               </div>
 
               <div class="app-stat-grid">
                 <div class="app-stat-card">
-                  <p class="app-stat-label">Driver</p>
-                  <p class="app-stat-value" x-text="selectedTrip.participants.find((participant) => participant.role === 'driver')?.member?.name || 'Not set'"></p>
+                  <p class="app-stat-label">Passengers</p>
+                  <p class="app-stat-value" x-text="getTripPassengerNames().length"></p>
+                </div>
+                <div class="app-stat-card">
+                  <p class="app-stat-label">Absent</p>
+                  <p class="app-stat-value" x-text="getTripAbsentNames().length"></p>
                 </div>
                 <div class="app-stat-card">
                   <p class="app-stat-label">Total cost</p>
@@ -96,11 +122,18 @@ const initialState = {
                     <div class="av-auth-stack-xxs">
                       <span class="app-list-title" x-text="participant.member?.name || 'Unknown member'"></span>
                       <p class="av-text-soft">
-                        <span x-text="participant.role"></span>
-                        · <span x-text="participant.attendanceStatus"></span>
+                        Fairness impact:
+                        <span x-text="getParticipantImpactLabel(participant)"></span>
                       </p>
                     </div>
-                    <span class="app-score-pill" x-text="participant.role === 'driver' ? '+1 drive' : participant.missedRide ? '+1 missed' : participant.attendanceStatus === 'absent' ? '+1 absence' : '+1 ride'"></span>
+                    <div class="app-row-end">
+                      <span
+                        class="app-status-pill"
+                        :class="getParticipantRoleClass(participant)"
+                        x-text="getParticipantRoleLabel(participant)"
+                      ></span>
+                      <span class="app-score-pill" x-text="getParticipantImpactLabel(participant)"></span>
+                    </div>
                   </div>
                 </template>
               </div>
