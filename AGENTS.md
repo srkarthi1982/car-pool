@@ -145,6 +145,8 @@ Do NOT implement complex rotation now.
 
 ## Task Log (Newest first)
 
+- 2026-04-27 (f): Restored nullable `petrolAmount`/`tollAmount` columns in `db/tables.ts` as deprecated storage-only compatibility fields after remote production reported `no such column: petrolAmount`; active runtime/UI/actions/store/spec remain cost-free. Verification: `npm run db:push` ✅, remote `CarPoolTrips` column check ✅.
+
 - 2026-04-27 (e): Removed petrol/toll scope from active Car Pool V1 runtime and product spec. Removed petrol/toll fields from schema definition, action input/insert payloads, Alpine trip state/types, trip drawer, trip history, trip detail, and seed script; product truth now states V1 handles groups, members, rotation, attendance, trip logs, and fairness only. Verification: `npm run db:push` ✅, `npm run typecheck` ✅, `npm run build` ✅.
 
 - 2026-04-27 (d): Fixed drawer label visibility regression after UI polish by strengthening the drawer overlay-scoped label/helper text contrast rules in `src/styles/global.css`; no logic/schema changes. Verification: `npm run typecheck` ✅, `npm run build` ✅.

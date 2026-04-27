@@ -35,6 +35,9 @@ export const CarPoolTrips = defineTable({
     tripDate: column.date(),
     assignedDriverId: column.text({ optional: true }),
     actualDriverId: column.text({ optional: true }),
+    // Deprecated compatibility fields only. Car Pool V1 runtime no longer reads or writes costs.
+    petrolAmount: column.number({ optional: true }),
+    tollAmount: column.number({ optional: true }),
     notes: column.text({ optional: true }),
     createdAt: column.date({ default: sql`CURRENT_TIMESTAMP` }),
     updatedAt: column.date({ default: sql`CURRENT_TIMESTAMP` }),
