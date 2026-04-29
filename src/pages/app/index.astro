@@ -1,5 +1,5 @@
 ---
-import { AvButton, AvCard, AvContainer, AvDrawer, AvEmptyState } from "@ansiversa/components";
+import { AvButton, AvCard, AvCheckbox, AvContainer, AvDrawer, AvEmptyState, AvInput } from "@ansiversa/components";
 import { server } from "../../actions";
 import AppShell from "../../layouts/AppShell.astro";
 import type { CarPoolGroup } from "../../modules/app/carPoolStore";
@@ -130,16 +130,13 @@ const initialState = {
           >
             <AvDrawer title="Create car pool group" description="Start a workspace for one commute team.">
               <form id="create-group-form" class="av-auth-stack-md" @submit.prevent="submitCreateGroup()">
-                <label class="app-field">
-                  <span class="app-label">Group name</span>
-                  <input
-                    type="text"
-                    x-model="createGroupForm.name"
-                    class="app-input"
-                    placeholder="e.g. Office Team Alpha"
-                    required
-                  />
-                </label>
+                <AvInput
+                  label="Group name"
+                  name="group-name"
+                  x-model="createGroupForm.name"
+                  placeholder="e.g. Office Team Alpha"
+                  required
+                />
 
                 <div class="app-field">
                   <span class="app-label">Working days</span>
@@ -153,14 +150,13 @@ const initialState = {
                       { value: 6, label: 'Sat' },
                       { value: 0, label: 'Sun' }
                     ]" :key="day.value">
-                      <label class="app-day-chip">
-                        <input
-                          type="checkbox"
-                          :value="day.value"
-                          x-model="createGroupForm.workingDays"
-                        />
+                      <AvCheckbox
+                        className="app-day-chip"
+                        :value="day.value"
+                        x-model="createGroupForm.workingDays"
+                      >
                         <span x-text="day.label"></span>
-                      </label>
+                      </AvCheckbox>
                     </template>
                   </div>
                 </div>

@@ -123,6 +123,85 @@ async function calculateMemberFairness(memberId: string) {
   };
 }
 
+function validateTripMemberPayload(input: {
+  actualDriverId: string;
+  passengers: string[];
+  absentees: string[];
+}, memberMap: Map<string, any>) {
+  const passengerSet = new Set(input.passengers);
+  const absenteeSet = new Set(input.absentees);
+
+  if (passengerSet.has(input.actualDriverId) || absenteeSet.has(input.actualDriverId)) {
+    throw new ActionError({ code: "BAD_REQUEST", message: "Driver cannot be marked as passenger or absent." });
+  }
+
+  for (const pid of input.passengers) {
+    if (!memberMap.has(pid)) throw new ActionError({ code: "BAD_REQUEST", message: "Invalid passenger" });
+    if (absenteeSet.has(pid)) throw new ActionError({ code: "BAD_REQUEST", message: "Absent member cannot be passenger" });
+  }
+
+  for (const aid of input.absentees) {
+    if (!memberMap.has(aid)) throw new ActionError({ code: "BAD_REQUEST", message: "Invalid absentee" });
+  }
+}
+
+async function buildTripParticipants(input: {
+  tripId: string;
+  actualDriverId: string;
+  passengers: string[];
+  absentees: string[];
+}, rotation: any, memberMap: Map<string, any>) {
+  const presentMembers = rotation.presentMembers;
+  const participants = [];
+
+  participants.push({
+    id: generateId(),
+    tripId: input.tripId,
+    memberId: input.actualDriverId,
+    role: 'driver',
+    attendanceStatus: 'present',
+    receivedRide: false,
+    missedRide: false,
+    createdAt: new Date(),
+  });
+
+  for (const pid of input.passengers) {
+    participants.push({
+      id: generateId(),
+      tripId: input.tripId,
+      memberId: pid,
+      role: 'passenger',
+      attendanceStatus: 'present',
+      receivedRide: true,
+      missedRide: false,
+      createdAt: new Date(),
+    });
+  }
+
+  for (const aid of input.absentees) {
+    const member = memberMap.get(aid)!;
+    const wouldBePassenger =
+      rotation.baseCandidate != null &&
+      rotation.baseCandidate.id !== member.id &&
+      presentMembers.length >= 2;
+
+    participants.push({
+      id: generateId(),
+      tripId: input.tripId,
+      memberId: aid,
+      role: wouldBePassenger ? 'passenger' : 'driver',
+      attendanceStatus: 'absent',
+      receivedRide: false,
+      missedRide: wouldBePassenger,
+      createdAt: new Date(),
+    });
+  }
+
+  for (const participant of participants) {
+    await db.insert(CarPoolTripParticipants as any).values(participant);
+  }
+}
+
 // ============================================================================
 // ACTIONS DEFINITION
 // ============================================================================
@@ -354,22 +433,8 @@ export const server = {
         throw new ActionError({ code: "BAD_REQUEST", message: "Invalid driver" });
       }
       const driver = memberMap.get(input.actualDriverId)!;
-      if (input.absentees.includes(input.actualDriverId)) {
-        throw new ActionError({ code: "BAD_REQUEST", message: "Actual driver must be present" });
-      }
 
-      // Validate passengers and absentees
-      const passengerSet = new Set(input.passengers);
-
-      for (const pid of input.passengers) {
-        if (!memberMap.has(pid)) throw new ActionError({ code: "BAD_REQUEST", message: "Invalid passenger" });
-        if (pid === input.actualDriverId) throw new ActionError({ code: "BAD_REQUEST", message: "Driver cannot be passenger" });
-      }
-
-      for (const aid of input.absentees) {
-        if (!memberMap.has(aid)) throw new ActionError({ code: "BAD_REQUEST", message: "Invalid absentee" });
-        if (passengerSet.has(aid)) throw new ActionError({ code: "BAD_REQUEST", message: "Absent member cannot be passenger" });
-      }
+      validateTripMemberPayload(input, memberMap);
 
       // Check at least 2 present members
       if (presentMembers.length < 2) {
@@ -390,61 +455,121 @@ export const server = {
         updatedAt: new Date(),
       });
 
-      // Create participants
-      const participants = [];
-
-      // Driver
-      participants.push({
-        id: generateId(),
-        tripId,
-        memberId: input.actualDriverId,
-        role: 'driver',
-        attendanceStatus: 'present',
-        receivedRide: false,
-        missedRide: false,
-        createdAt: new Date(),
-      });
-
-      // Passengers
-      for (const pid of input.passengers) {
-        participants.push({
-          id: generateId(),
-          tripId,
-          memberId: pid,
-          role: 'passenger',
-          attendanceStatus: 'present',
-          receivedRide: true,
-          missedRide: false,
-          createdAt: new Date(),
-        });
-      }
-
-      // Absentees
-      for (const aid of input.absentees) {
-        const member = memberMap.get(aid)!;
-        const wouldBePassenger =
-          rotation.baseCandidate != null &&
-          rotation.baseCandidate.id !== member.id &&
-          presentMembers.length >= 2;
-
-        participants.push({
-          id: generateId(),
-          tripId,
-          memberId: aid,
-          role: wouldBePassenger ? 'passenger' : 'driver',
-          attendanceStatus: 'absent',
-          receivedRide: false,
-          missedRide: wouldBePassenger,
-          createdAt: new Date(),
-        });
-      }
-
-      // Insert all participants
-      for (const p of participants) {
-        await db.insert(CarPoolTripParticipants as any).values(p);
-      }
+      await buildTripParticipants({ ...input, tripId }, rotation, memberMap);
 
       return { tripId };
+    },
+  }),
+
+  // Update an existing trip
+  updateTrip: defineAction({
+    input: z.object({
+      tripId: z.string(),
+      groupId: z.string(),
+      tripDate: z.string(),
+      actualDriverId: z.string(),
+      passengers: z.array(z.string()),
+      absentees: z.array(z.string()),
+      notes: z.string().optional(),
+    }),
+    handler: async (input, context) => {
+      const user = requireUser(context);
+
+      const trip = await db
+        .select()
+        .from(CarPoolTrips as any)
+        .where(eq((CarPoolTrips as any).id, input.tripId))
+        .limit(1);
+
+      if (trip.length === 0) {
+        throw new ActionError({ code: "NOT_FOUND", message: "Trip not found" });
+      }
+
+      if (trip[0].groupId !== input.groupId) {
+        throw new ActionError({ code: "BAD_REQUEST", message: "Trip does not belong to this group" });
+      }
+
+      const membership = await db
+        .select()
+        .from(CarPoolMembers as any)
+        .where(and(
+          eq((CarPoolMembers as any).groupId, input.groupId),
+          eq((CarPoolMembers as any).userId, user.id),
+          eq((CarPoolMembers as any).isActive, true)
+        ));
+
+      if (membership.length === 0) {
+        throw new ActionError({ code: "FORBIDDEN", message: "Not a member of this group" });
+      }
+
+      const group = await db
+        .select()
+        .from(CarPoolGroups as any)
+        .where(eq((CarPoolGroups as any).id, input.groupId))
+        .limit(1);
+
+      if (group.length === 0) {
+        throw new ActionError({ code: "NOT_FOUND", message: "Group not found" });
+      }
+      if (group[0].isArchived) {
+        throw new ActionError({ code: "CONFLICT", message: "Archived groups cannot edit trips" });
+      }
+
+      const tripDate = new Date(input.tripDate);
+      if (Number.isNaN(tripDate.getTime())) {
+        throw new ActionError({ code: "BAD_REQUEST", message: "Trip date is invalid" });
+      }
+
+      const workingDays = Array.isArray(group[0].workingDays) ? group[0].workingDays : [];
+      if (workingDays.length > 0 && !workingDays.includes(tripDate.getDay())) {
+        throw new ActionError({ code: "BAD_REQUEST", message: "Trip date is outside the group's working days" });
+      }
+
+      const existingTrips = await db
+        .select()
+        .from(CarPoolTrips as any)
+        .where(and(
+          eq((CarPoolTrips as any).groupId, input.groupId),
+          eq((CarPoolTrips as any).tripDate, tripDate)
+        ));
+
+      if (existingTrips.some((existingTrip) => existingTrip.id !== input.tripId)) {
+        throw new ActionError({ code: "CONFLICT", message: "Trip already exists for this date" });
+      }
+
+      const rotation = await getRotationContext(input.groupId, tripDate, input.absentees);
+      const allMembers = rotation.members;
+      const presentMembers = rotation.presentMembers;
+      const memberMap = new Map(allMembers.map(m => [m.id, m]));
+
+      if (!memberMap.has(input.actualDriverId)) {
+        throw new ActionError({ code: "BAD_REQUEST", message: "Invalid driver" });
+      }
+
+      validateTripMemberPayload(input, memberMap);
+
+      if (presentMembers.length < 2) {
+        throw new ActionError({ code: "BAD_REQUEST", message: "Trip requires at least 2 present members" });
+      }
+
+      await db
+        .update(CarPoolTrips as any)
+        .set({
+          tripDate,
+          assignedDriverId: rotation.assignedDriver?.id ?? null,
+          actualDriverId: input.actualDriverId,
+          notes: input.notes,
+          updatedAt: new Date(),
+        })
+        .where(eq((CarPoolTrips as any).id, input.tripId));
+
+      await db
+        .delete(CarPoolTripParticipants as any)
+        .where(eq((CarPoolTripParticipants as any).tripId, input.tripId));
+
+      await buildTripParticipants(input, rotation, memberMap);
+
+      return { success: true };
     },
   }),
 

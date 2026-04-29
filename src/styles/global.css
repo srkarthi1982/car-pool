@@ -104,23 +104,6 @@
   color: rgba(203, 213, 225, 0.82);
 }
 
-.app-input,
-.app-textarea {
-  width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.5);
-  border-radius: 0.9rem;
-  background: rgba(255, 255, 255, 0.98);
-  color: rgb(15, 23, 42);
-  padding: 0.8rem 0.95rem;
-}
-
-.app-input:focus,
-.app-textarea:focus {
-  outline: 2px solid rgba(59, 130, 246, 0.2);
-  outline-offset: 1px;
-  border-color: rgba(59, 130, 246, 0.55);
-}
-
 .app-inline-grid {
   display: grid;
   gap: 1rem;
@@ -151,6 +134,16 @@
   color: rgb(15, 23, 42);
 }
 
+.app-day-chip .av-inline-check,
+.app-check-item .av-inline-check {
+  width: 100%;
+  color: inherit;
+}
+
+.app-check-item:has(.av-checkbox:disabled) {
+  opacity: 0.62;
+}
+
 .app-checklist,
 .app-list-stack {
   display: flex;
@@ -170,6 +163,22 @@
   background: rgba(255, 255, 255, 0.9);
 }
 
+.app-list-row :where(.av-text-soft),
+.app-fairness-row :where(.av-text-soft),
+.app-stat-card :where(.av-text-soft),
+.app-trip-summary :where(.av-text-soft),
+.app-signal :where(.av-text-soft) {
+  color: rgba(71, 85, 105, 0.86);
+}
+
+.app-list-row :where(strong, span:not(.app-status-pill):not(.app-score-pill):not(.app-date-pill)),
+.app-fairness-row :where(strong, span:not(.app-status-pill):not(.app-score-pill):not(.app-date-pill)),
+.app-stat-card :where(strong),
+.app-trip-summary :where(strong, span:not(.app-status-pill):not(.app-score-pill):not(.app-date-pill)),
+.app-signal :where(strong) {
+  color: rgb(15, 23, 42);
+}
+
 .app-list-title,
 .app-stat-value {
   color: rgb(15, 23, 42);
@@ -182,6 +191,23 @@
   justify-content: flex-end;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.app-trip-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.app-icon-button {
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  padding: 0;
+  border-radius: 999px;
 }
 
 .app-stat-grid {
@@ -342,6 +368,12 @@
   .app-fairness-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .app-trip-actions {
+    width: 100%;
+    justify-content: flex-end;
+    margin-left: 0;
   }
 
   .app-score-pill,

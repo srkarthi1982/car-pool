@@ -46,6 +46,12 @@ export interface CarPoolTrip {
 
 type FairnessStatus = "Driving more" | "Balanced" | "Receiving more";
 
+type DriverCandidate = {
+  member: CarPoolMember;
+  driveCount: number;
+  fairnessScore: number;
+};
+
 export interface TripParticipant {
   id: string;
   tripId: string;
@@ -86,6 +92,7 @@ export class CarPoolAppStore extends AvBaseStore {
   showCreateGroupDrawer = false;
   showAddMembersDrawer = false;
   showCreateTripDrawer = false;
+  editingTripId: string | null = null;
 
   // Form state
   createGroupForm = {
@@ -140,6 +147,10 @@ export class CarPoolAppStore extends AvBaseStore {
   initializeTripDetailPage(serializedState?: string) {
     const state = this.parseState(serializedState);
     this.selectedGroupId = typeof state.groupId === "string" ? state.groupId : null;
+    this.selectedGroupDetail = {
+      group: state.groupDetail?.group ?? null,
+      members: Array.isArray(state.groupDetail?.members) ? state.groupDetail.members : [],
+    };
     this.selectedTrip = {
       trip: state.tripDetail?.trip ?? null,
       participants: Array.isArray(state.tripDetail?.participants) ? state.tripDetail.participants : [],
@@ -302,6 +313,7 @@ export class CarPoolAppStore extends AvBaseStore {
       return;
     }
     this.showCreateTripDrawer = true;
+    this.editingTripId = null;
     this.error = null;
     this.createTripForm = {
       tripDate: new Date().toISOString().split("T")[0],
@@ -314,9 +326,72 @@ export class CarPoolAppStore extends AvBaseStore {
 
   closeCreateTripDrawer() {
     this.showCreateTripDrawer = false;
+    this.editingTripId = null;
+  }
+
+  async openEditTripDrawer(tripId: string) {
+    if (!tripId || !this.selectedGroupId) return;
+    if (this.selectedGroupDetail.group?.isArchived) {
+      this.error = "Archived groups cannot edit trips";
+      return;
+    }
+
+    this.isLoading = true;
+    this.error = null;
+    try {
+      const result = await actions.loadTripDetail({ tripId });
+      const trip = (result.data?.trip as any) ?? null;
+      const participants = (result.data?.participants as any) || [];
+      if (!trip) {
+        this.error = "Trip not found";
+        return;
+      }
+
+      const driverParticipant = participants.find(
+        (participant: TripParticipant) => participant.role === "driver" && participant.attendanceStatus === "present",
+      );
+      const driverId = driverParticipant?.memberId ?? trip.actualDriverId ?? "";
+
+      this.selectedTrip = { trip, participants };
+      this.editingTripId = tripId;
+      this.createTripForm = {
+        tripDate: this.toDateInputValue(trip.tripDate),
+        actualDriverId: driverId != null ? String(driverId) : "",
+        passengers: participants
+          .filter((participant: TripParticipant) => participant.role === "passenger" && participant.attendanceStatus === "present")
+          .map((participant: TripParticipant) => String(participant.memberId)),
+        absentees: participants
+          .filter((participant: TripParticipant) => participant.attendanceStatus === "absent")
+          .map((participant: TripParticipant) => String(participant.memberId)),
+        notes: trip.notes ?? "",
+      };
+      this.sanitizeTripFormDriverSelections();
+      this.showCreateTripDrawer = true;
+    } catch (err: any) {
+      this.error = err.message || "Failed to load trip";
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  onTripDriverChange() {
+    this.sanitizeTripFormDriverSelections();
+  }
+
+  getTripPassengerOptions() {
+    return this.selectedGroupDetail.members.filter((member) => member.id !== this.createTripForm.actualDriverId);
+  }
+
+  getTripAbsenteeOptions() {
+    return this.selectedGroupDetail.members.filter((member) => member.id !== this.createTripForm.actualDriverId);
   }
 
   togglePassenger(memberId: string) {
+    if (memberId === this.createTripForm.actualDriverId) {
+      this.error = "Driver cannot be marked as passenger or absent.";
+      return;
+    }
+
     const index = this.createTripForm.passengers.indexOf(memberId);
     if (index > -1) {
       this.createTripForm.passengers.splice(index, 1);
@@ -331,6 +406,11 @@ export class CarPoolAppStore extends AvBaseStore {
   }
 
   toggleAbsentee(memberId: string) {
+    if (memberId === this.createTripForm.actualDriverId) {
+      this.error = "Driver cannot be marked as passenger or absent.";
+      return;
+    }
+
     const index = this.createTripForm.absentees.indexOf(memberId);
     if (index > -1) {
       this.createTripForm.absentees.splice(index, 1);
@@ -353,22 +433,37 @@ export class CarPoolAppStore extends AvBaseStore {
       return;
     }
 
+    this.sanitizeTripFormDriverSelections();
+
     this.isLoading = true;
     this.error = null;
     try {
-      await actions.createTrip({
+      const payload = {
         groupId: this.selectedGroupId,
         tripDate: this.createTripForm.tripDate,
         actualDriverId: this.createTripForm.actualDriverId,
         passengers: this.createTripForm.passengers,
         absentees: this.createTripForm.absentees,
         notes: this.createTripForm.notes,
-      });
+      };
+
+      if (this.editingTripId) {
+        await actions.updateTrip({
+          tripId: this.editingTripId,
+          ...payload,
+        });
+      } else {
+        await actions.createTrip(payload);
+      }
+
       await this.loadGroupDetail();
       await this.loadTripHistory();
+      if (this.editingTripId) {
+        await this.loadTripDetail(this.editingTripId);
+      }
       this.closeCreateTripDrawer();
     } catch (err: any) {
-      this.error = err.message || "Failed to create trip";
+      this.error = err.message || (this.editingTripId ? "Failed to update trip" : "Failed to create trip");
     } finally {
       this.isLoading = false;
     }
@@ -420,26 +515,11 @@ export class CarPoolAppStore extends AvBaseStore {
   }
 
   getTodaysDriver(): CarPoolMember | null {
-    if (!this.selectedGroupDetail.members.length) return null;
-    // Simple implementation - in real app, use rotation logic
-    const today = new Date().toISOString().split('T')[0];
-    const hash = today.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-    const index = hash % this.selectedGroupDetail.members.length;
-    return this.selectedGroupDetail.members[index];
+    return this.getDriverSuggestionQueue(1)[0] ?? null;
   }
 
   getNextDrivers(count: number = 3): CarPoolMember[] {
-    if (!this.selectedGroupDetail.members.length) return [];
-    const today = new Date();
-    const drivers: CarPoolMember[] = [];
-    for (let i = 1; i <= count; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() + i);
-      const hash = date.toISOString().split('T')[0].split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-      const index = hash % this.selectedGroupDetail.members.length;
-      drivers.push(this.selectedGroupDetail.members[index]);
-    }
-    return drivers;
+    return this.getDriverSuggestionQueue(count + 1).slice(1);
   }
 
   getNextDriverPreview(count: number = 3) {
@@ -455,7 +535,8 @@ export class CarPoolAppStore extends AvBaseStore {
   }
 
   getFairnessScore(member?: CarPoolMember | null) {
-    return member?.fairness?.fairnessScore ?? 0;
+    if (!member) return 0;
+    return this.getRelativeFairnessScore(member);
   }
 
   getFairnessStatus(member?: CarPoolMember | null): FairnessStatus {
@@ -525,6 +606,127 @@ export class CarPoolAppStore extends AvBaseStore {
     return values
       .map((value) => typeof value === "number" ? value : Number.parseInt(value, 10))
       .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
+  }
+
+  private sanitizeTripFormDriverSelections() {
+    const driverId = this.createTripForm.actualDriverId;
+    if (!driverId) return;
+    this.createTripForm.passengers = this.createTripForm.passengers.filter((memberId) => memberId !== driverId);
+    this.createTripForm.absentees = this.createTripForm.absentees.filter((memberId) => memberId !== driverId);
+  }
+
+  private getDriverSuggestionQueue(count: number) {
+    const members = this.getOrderedActiveMembers();
+    if (!members.length) return [];
+
+    const targetDate = new Date();
+    const targetKey = this.toDateKey(targetDate);
+    const latestTrip = [...this.tripHistory]
+      .filter((trip) => trip.actualDriverId && this.toDateKey(trip.tripDate) <= targetKey)
+      .sort((a, b) => this.toDateKey(b.tripDate).localeCompare(this.toDateKey(a.tripDate)))[0];
+    let latestDriverId = latestTrip?.actualDriverId ? String(latestTrip.actualDriverId) : null;
+
+    const candidates = members.map((member) => ({
+      member,
+      driveCount: member.fairness?.driveCount ?? 0,
+      fairnessScore: member.fairness?.fairnessScore ?? 0,
+    }));
+    const queue: CarPoolMember[] = [];
+
+    for (let index = 0; index < count; index += 1) {
+      const next = this.allDriveCountsEqual(candidates)
+        ? this.pickNextRotationCandidate(candidates, latestDriverId)
+        : this.pickNextDriverCandidate(candidates, latestDriverId);
+      if (!next) break;
+      queue.push(next.member);
+      next.driveCount += 1;
+      next.fairnessScore += 1;
+      latestDriverId = next.member.id;
+    }
+
+    return queue;
+  }
+
+  private pickNextDriverCandidate(candidates: DriverCandidate[], latestDriverId: string | null) {
+    if (!candidates.length) return null;
+
+    const lowestDriveCount = Math.min(...candidates.map((candidate) => candidate.driveCount));
+    let eligible = candidates.filter((candidate) => candidate.driveCount === lowestDriveCount);
+
+    if (latestDriverId && eligible.length > 1) {
+      const withoutLatest = eligible.filter((candidate) => candidate.member.id !== latestDriverId);
+      if (withoutLatest.length > 0) {
+        eligible = withoutLatest;
+      }
+    }
+
+    return eligible.sort((a, b) => {
+      if (a.fairnessScore !== b.fairnessScore) {
+        return a.fairnessScore - b.fairnessScore;
+      }
+      if (a.member.rotationOrder !== b.member.rotationOrder) {
+        return a.member.rotationOrder - b.member.rotationOrder;
+      }
+      return a.member.name.localeCompare(b.member.name);
+    })[0] ?? null;
+  }
+
+  private pickNextRotationCandidate(candidates: DriverCandidate[], latestDriverId: string | null) {
+    const orderedCandidates = [...candidates].sort((a, b) => {
+      if (a.member.rotationOrder !== b.member.rotationOrder) {
+        return a.member.rotationOrder - b.member.rotationOrder;
+      }
+      return a.member.name.localeCompare(b.member.name);
+    });
+
+    if (!latestDriverId) return orderedCandidates[0] ?? null;
+
+    const latestIndex = orderedCandidates.findIndex((candidate) => candidate.member.id === latestDriverId);
+    if (latestIndex < 0) return orderedCandidates[0] ?? null;
+
+    return orderedCandidates[(latestIndex + 1) % orderedCandidates.length] ?? null;
+  }
+
+  private allDriveCountsEqual(candidates: DriverCandidate[]) {
+    if (candidates.length <= 1) return true;
+    const firstDriveCount = candidates[0].driveCount;
+    return candidates.every((candidate) => candidate.driveCount === firstDriveCount);
+  }
+
+  private getRelativeFairnessScore(member: CarPoolMember) {
+    const members = this.getOrderedActiveMembers();
+    if (!members.length) return 0;
+
+    const scores = members.map((candidate) => candidate.fairness?.fairnessScore ?? 0);
+    const allScoresEqual = scores.every((score) => score === scores[0]);
+    if (allScoresEqual) return 0;
+
+    const average = scores.reduce((total, score) => total + score, 0) / scores.length;
+    const rawScore = member.fairness?.fairnessScore ?? 0;
+    const relativeScore = rawScore - average;
+
+    if (Math.abs(relativeScore) < 0.5) return 0;
+    return Math.round(relativeScore);
+  }
+
+  private getOrderedActiveMembers() {
+    return [...this.selectedGroupDetail.members]
+      .filter((member) => member.isActive !== false)
+      .sort((a, b) => a.rotationOrder - b.rotationOrder);
+  }
+
+  private toDateKey(date: Date | string) {
+    const parsedDate = new Date(date);
+    if (Number.isNaN(parsedDate.getTime())) return "";
+    return parsedDate.toISOString().split("T")[0];
+  }
+
+  private toDateInputValue(date: Date | string) {
+    const parsedDate = new Date(date);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return new Date().toISOString().split("T")[0];
+    }
+    return this.toDateKey(parsedDate);
   }
 
   private visit(path: string) {

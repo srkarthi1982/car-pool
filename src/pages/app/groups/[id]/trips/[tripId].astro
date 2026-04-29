@@ -1,5 +1,15 @@
 ---
-import { AvCard, AvContainer, AvEmptyState } from "@ansiversa/components";
+import {
+  AvButton,
+  AvCard,
+  AvCheckbox,
+  AvContainer,
+  AvDrawer,
+  AvEmptyState,
+  AvInput,
+  AvSelect,
+  AvTextarea,
+} from "@ansiversa/components";
 import { server } from "../../../../../actions";
 import AppShell from "../../../../../layouts/AppShell.astro";
 
@@ -9,17 +19,29 @@ if (!id || !tripId) {
 }
 
 let tripDetail = null;
+let groupDetail = null;
 let loadError: string | null = null;
 
 try {
-  const result = await Astro.callAction(server.loadTripDetail, { tripId });
-  if (result?.error) {
-    loadError = result.error.message ?? "Unable to load trip";
+  const [tripResult, groupResult] = await Promise.all([
+    Astro.callAction(server.loadTripDetail, { tripId }),
+    Astro.callAction(server.loadGroupDetail, { groupId: id }),
+  ]);
+
+  if (tripResult?.error || groupResult?.error) {
+    loadError = tripResult?.error?.message ?? groupResult?.error?.message ?? "Unable to load trip";
   }
-  tripDetail = result?.data?.trip
+
+  tripDetail = tripResult?.data?.trip
     ? {
-        trip: result.data.trip,
-        participants: result.data.participants || [],
+        trip: tripResult.data.trip,
+        participants: tripResult.data.participants || [],
+      }
+    : null;
+  groupDetail = groupResult?.data?.group
+    ? {
+        group: groupResult.data.group,
+        members: groupResult.data.members || [],
       }
     : null;
 } catch (error) {
@@ -34,6 +56,7 @@ if (!tripDetail && loadError) {
 const initialState = {
   groupId: id,
   tripDetail,
+  groupDetail,
   loadError,
 };
 ---
@@ -48,11 +71,18 @@ const initialState = {
         data-initial={JSON.stringify(initialState)}
       >
         <AvCard className="av-auth-stack-md">
-          <div class="av-auth-stack-xs">
-            <a href={`/app/groups/${id}/trips`} class="av-text-soft app-back-link">← Back to trips</a>
-            <p class="av-kicker">Trip detail</p>
-            <h1 class="av-section-title">Recorded commute</h1>
-            <p class="av-text-soft">Driver, passengers, absences, and fairness impact stay grouped inside the app shell.</p>
+          <div class="av-row-between app-row-top">
+            <div class="av-auth-stack-xs">
+              <a href={`/app/groups/${id}/trips`} class="av-text-soft app-back-link">← Back to trips</a>
+              <p class="av-kicker">Trip detail</p>
+              <h1 class="av-section-title">Recorded commute</h1>
+              <p class="av-text-soft">Driver, passengers, absences, and fairness impact stay grouped inside the app shell.</p>
+            </div>
+            <div class="av-row-wrap">
+              <AvButton type="button" @click="openEditTripDrawer(selectedTrip.trip.id)" :disabled="!selectedTrip.trip">
+                Edit trip
+              </AvButton>
+            </div>
           </div>
 
           <template x-if="error">
@@ -144,6 +174,103 @@ const initialState = {
               description="This trip could not be loaded for the current user."
             />
           </AvCard>
+        </template>
+
+        <template x-if="showCreateTripDrawer">
+          <div
+            class="av-drawer-overlay"
+            @click.self="closeCreateTripDrawer()"
+            @keydown.escape.window="closeCreateTripDrawer()"
+            @close-drawer="closeCreateTripDrawer()"
+            x-cloak
+          >
+            <AvDrawer title="Edit trip" description="Correct this commute record without leaving the trip detail page.">
+              <form id="edit-trip-form" class="av-auth-stack-md" @submit.prevent="submitCreateTrip()">
+                <AvInput
+                  label="Date"
+                  name="trip-date"
+                  type="date"
+                  className="app-drawer-section"
+                  x-model="createTripForm.tripDate"
+                  required
+                />
+
+                <AvSelect
+                  label="Driver"
+                  name="actual-driver"
+                  className="app-drawer-section"
+                  x-model="createTripForm.actualDriverId"
+                  x-effect="$el.value = createTripForm.actualDriverId"
+                  @change="onTripDriverChange()"
+                  required
+                >
+                  <option value="">Select driver</option>
+                  <template x-for="member in selectedGroupDetail.members" :key="member.id">
+                    <option
+                      :value="String(member.id)"
+                      :selected="String(member.id) === createTripForm.actualDriverId"
+                      x-text="member.name"
+                    ></option>
+                  </template>
+                </AvSelect>
+
+                <div class="app-field app-drawer-section">
+                  <span class="app-label">Present passengers</span>
+                  <p class="av-text-soft">Select riders who joined this commute. The driver is excluded.</p>
+                  <div class="app-checklist">
+                    <template x-for="member in getTripPassengerOptions()" :key="`${member.id}-passenger-edit`">
+                      <AvCheckbox
+                        className="app-check-item"
+                        :value="member.id"
+                        x-model="createTripForm.passengers"
+                      >
+                        <span x-text="member.name"></span>
+                      </AvCheckbox>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="app-field app-drawer-section app-drawer-section--muted">
+                  <span class="app-label">Absentees</span>
+                  <p class="av-text-soft">Use only for members who missed this trip. The driver is excluded.</p>
+                  <div class="app-checklist">
+                    <template x-for="member in getTripAbsenteeOptions()" :key="`${member.id}-absent-edit`">
+                      <AvCheckbox
+                        className="app-check-item"
+                        :value="member.id"
+                        x-model="createTripForm.absentees"
+                        :disabled="createTripForm.passengers.includes(member.id)"
+                      >
+                        <span x-text="member.name"></span>
+                      </AvCheckbox>
+                    </template>
+                  </div>
+                </div>
+
+                <AvTextarea
+                  label="Notes"
+                  name="trip-notes"
+                  rows={3}
+                  x-model="createTripForm.notes"
+                  placeholder="Optional trip notes"
+                />
+              </form>
+
+              <Fragment slot="footer">
+                <div class="av-auth-stack-xs av-w-full">
+                  <template x-if="error">
+                    <div class="av-alert av-alert-danger" role="status" x-text="error"></div>
+                  </template>
+                  <div class="av-row-wrap av-drawer-footer-actions">
+                    <AvButton variant="ghost" type="button" @click="closeCreateTripDrawer()">Cancel</AvButton>
+                    <AvButton type="submit" form="edit-trip-form" :disabled="isLoading">
+                      <span x-text="isLoading ? 'Saving…' : 'Save changes'"></span>
+                    </AvButton>
+                  </div>
+                </div>
+              </Fragment>
+            </AvDrawer>
+          </div>
         </template>
       </div>
     </AvContainer>
