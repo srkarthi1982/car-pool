@@ -3,6 +3,7 @@ import {
   AvButton,
   AvCard,
   AvCheckbox,
+  AvConfirmDialog,
   AvContainer,
   AvDrawer,
   AvEmptyState,
@@ -59,6 +60,12 @@ const initialState = {
   groupDetail,
   tripHistory,
   loadError,
+  currentUser: Astro.locals.user
+    ? {
+        id: Astro.locals.user.id,
+        roleId: Astro.locals.user.roleId ?? null,
+      }
+    : null,
 };
 
 const groupName = groupDetail?.group?.name ?? "Group workspace";
@@ -86,7 +93,7 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
               <AvButton
                 type="button"
                 @click="openCreateTripDrawer()"
-                :disabled="selectedGroupDetail.group?.isArchived"
+                :disabled="selectedGroupDetail.group?.isArchived || !hasValidTravellerSelection()"
               >
                 Log trip
               </AvButton>
@@ -100,18 +107,51 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
 
         <template x-if="selectedGroupDetail.group">
           <div class="av-auth-stack-lg">
+            <AvCard variant="soft" className="av-auth-stack-md">
+              <div class="av-auth-stack-xs">
+                <p class="av-kicker">Today’s travelling members</p>
+                <h2 class="av-card-heading">Active rotation set</h2>
+                <p class="av-text-soft">Choose who is travelling today. Driver suggestion and preview will use this active set only.</p>
+              </div>
+
+              <div class="app-traveller-grid">
+                <template x-for="member in selectedGroupDetail.members.filter((member) => member.isActive !== false)" :key="`${member.id}-traveller`">
+                  <AvCheckbox
+                    className="app-traveller-chip"
+                    :value="member.id"
+                    x-model="travellingMemberIds"
+                    @change="onTravellingMembersChange()"
+                  >
+                    <span x-text="member.name"></span>
+                  </AvCheckbox>
+                </template>
+              </div>
+
+              <div class="av-row-between app-row-top">
+                <p class="av-text-soft">
+                  <span x-text="getTravellingMemberCount()"></span>
+                  <span> travelling today</span>
+                </p>
+                <template x-if="!hasValidTravellerSelection()">
+                  <div class="av-alert av-alert-danger app-inline-warning" role="status">
+                    Select at least 2 travelling members to calculate today’s rotation.
+                  </div>
+                </template>
+              </div>
+            </AvCard>
+
             <div class="app-section-grid">
               <AvCard variant="soft" className="av-auth-stack-md">
                 <div class="av-auth-stack-xs">
                   <p class="av-kicker">Overview</p>
                   <h2 class="av-card-heading">Rotation snapshot</h2>
-                  <p class="av-text-soft">Keep the current driver suggestion and the next few turns visible at a glance.</p>
+                  <p class="av-text-soft">Driver suggestion uses the selected travelling members and their full group history.</p>
                 </div>
 
                 <div class="app-overview-grid">
                   <div class="app-stat-card app-stat-card--hero">
                     <p class="app-stat-label">Today’s driver</p>
-                    <p class="app-stat-hint">Suggested by current rotation</p>
+                    <p class="app-stat-hint">Suggested by today’s travelling set + global fairness</p>
                     <template x-if="getTodaysDriver()">
                       <div class="av-auth-stack-xxs">
                         <p class="app-hero-driver" x-text="getTodaysDriver().name"></p>
@@ -123,7 +163,7 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                       </div>
                     </template>
                     <template x-if="!getTodaysDriver()">
-                      <p class="av-text-soft">No eligible driver today.</p>
+                      <p class="av-text-soft">Select at least 2 travelling members to calculate today’s rotation.</p>
                     </template>
                   </div>
 
@@ -137,7 +177,7 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                 <div class="av-auth-stack-xs">
                   <div>
                     <p class="app-stat-label">Next drivers</p>
-                    <p class="av-text-soft">Upcoming rotation preview</p>
+                    <p class="av-text-soft">Upcoming preview for today’s travelling set</p>
                   </div>
                   <div class="app-list-stack">
                     <template x-for="preview in getNextDriverPreview(3)" :key="preview.id">
@@ -207,7 +247,7 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                     <AvButton
                       type="button"
                       @click="openCreateTripDrawer()"
-                      :disabled="selectedGroupDetail.group?.isArchived"
+                      :disabled="selectedGroupDetail.group?.isArchived || !hasValidTravellerSelection()"
                     >
                       Log trip
                     </AvButton>
@@ -307,6 +347,27 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                 </template>
               </AvCard>
             </div>
+
+            <template x-if="canDeleteSelectedGroup()">
+              <AvCard variant="soft" className="av-auth-stack-sm app-danger-zone">
+                <div class="av-row-between app-row-top">
+                  <div class="av-auth-stack-xxs">
+                    <p class="av-kicker">Danger zone</p>
+                    <h2 class="av-card-heading">Delete group</h2>
+                    <p class="av-text-soft">Permanently remove this group, its members, trips, and attendance history.</p>
+                  </div>
+                  <AvButton
+                    type="button"
+                    variant="outline"
+                    className="app-danger-button"
+                    @click="openDeleteGroupConfirm()"
+                    :disabled="isLoading"
+                  >
+                    Delete group
+                  </AvButton>
+                </div>
+              </AvCard>
+            </template>
           </div>
         </template>
 
@@ -477,6 +538,17 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
             </AvDrawer>
           </div>
         </template>
+
+        <AvConfirmDialog
+          id="delete-group-dialog"
+          variant="danger"
+          headline="Delete group?"
+          description="This will permanently delete this group, its members, trips, and attendance history. This action cannot be undone."
+          confirmLabel="Delete group"
+          cancelLabel="Cancel"
+          @av-confirm="confirmDeleteGroup()"
+          @av-cancel="cancelDeleteGroup()"
+        />
       </div>
     </AvContainer>
   </section>

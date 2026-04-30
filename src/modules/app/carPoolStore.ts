@@ -49,6 +49,9 @@ type FairnessStatus = "Driving more" | "Balanced" | "Receiving more";
 type DriverCandidate = {
   member: CarPoolMember;
   driveCount: number;
+  rideCount: number;
+  absenceCount: number;
+  missedRideCount: number;
   fairnessScore: number;
 };
 
@@ -67,6 +70,7 @@ export interface TripParticipant {
 export class CarPoolAppStore extends AvBaseStore {
   // State
   groups: CarPoolGroup[] = [];
+  currentUser: { id: string | null; roleId: number | null } = { id: null, roleId: null };
   selectedGroupId: string | null = null;
   selectedGroupDetail: {
     group: CarPoolGroup | null;
@@ -93,6 +97,8 @@ export class CarPoolAppStore extends AvBaseStore {
   showAddMembersDrawer = false;
   showCreateTripDrawer = false;
   editingTripId: string | null = null;
+  pendingDeleteGroupId: string | null = null;
+  travellingMemberIds: string[] = [];
 
   // Form state
   createGroupForm = {
@@ -115,6 +121,7 @@ export class CarPoolAppStore extends AvBaseStore {
   initializeIndex(serializedState?: string) {
     const state = this.parseState(serializedState);
     this.groups = Array.isArray(state.groups) ? state.groups : [];
+    this.currentUser = this.parseCurrentUser(state.currentUser);
     this.selectedGroupId = null;
     this.selectedGroupDetail = { group: null, members: [] };
     this.tripHistory = [];
@@ -125,11 +132,13 @@ export class CarPoolAppStore extends AvBaseStore {
 
   initializeGroupWorkspace(serializedState?: string) {
     const state = this.parseState(serializedState);
+    this.currentUser = this.parseCurrentUser(state.currentUser);
     this.selectedGroupId = typeof state.groupId === "string" ? state.groupId : null;
     this.selectedGroupDetail = {
       group: state.groupDetail?.group ?? null,
       members: Array.isArray(state.groupDetail?.members) ? state.groupDetail.members : [],
     };
+    this.resetTravellingMembers();
     this.tripHistory = Array.isArray(state.tripHistory) ? state.tripHistory : [];
     this.selectedTrip = { trip: null, participants: [] };
     this.currentView = "group-dashboard";
@@ -138,6 +147,7 @@ export class CarPoolAppStore extends AvBaseStore {
 
   initializeTripHistoryPage(serializedState?: string) {
     const state = this.parseState(serializedState);
+    this.currentUser = this.parseCurrentUser(state.currentUser);
     this.selectedGroupId = typeof state.groupId === "string" ? state.groupId : null;
     this.tripHistory = Array.isArray(state.tripHistory) ? state.tripHistory : [];
     this.currentView = "trip-history";
@@ -146,6 +156,7 @@ export class CarPoolAppStore extends AvBaseStore {
 
   initializeTripDetailPage(serializedState?: string) {
     const state = this.parseState(serializedState);
+    this.currentUser = this.parseCurrentUser(state.currentUser);
     this.selectedGroupId = typeof state.groupId === "string" ? state.groupId : null;
     this.selectedGroupDetail = {
       group: state.groupDetail?.group ?? null,
@@ -209,6 +220,7 @@ export class CarPoolAppStore extends AvBaseStore {
         group: (result.data?.group as any) ?? null,
         members: (result.data?.members as any) || [],
       };
+      this.resetTravellingMembers();
     } catch (err: any) {
       this.error = err.message || "Failed to load group detail";
     } finally {
@@ -257,6 +269,48 @@ export class CarPoolAppStore extends AvBaseStore {
     } finally {
       this.isLoading = false;
     }
+  }
+
+  canDeleteSelectedGroup() {
+    const group = this.selectedGroupDetail.group;
+    if (!group) return false;
+    if (this.currentUser.roleId === 1) return true;
+    return Boolean(this.currentUser.id && group.ownerId === this.currentUser.id);
+  }
+
+  openDeleteGroupConfirm() {
+    if (!this.selectedGroupId || !this.canDeleteSelectedGroup()) {
+      this.error = "Only the group owner or an admin can delete this group";
+      return;
+    }
+
+    this.pendingDeleteGroupId = this.selectedGroupId;
+    this.error = null;
+    window.AvDialog?.open?.("delete-group-dialog");
+  }
+
+  async confirmDeleteGroup() {
+    if (!this.pendingDeleteGroupId) return;
+    const groupId = this.pendingDeleteGroupId;
+
+    this.isLoading = true;
+    this.error = null;
+    try {
+      const result = await actions.deleteGroup({ groupId });
+      if (result.error) {
+        throw new Error(result.error.message || "Failed to delete group");
+      }
+      this.pendingDeleteGroupId = null;
+      this.visit("/app");
+    } catch (err: any) {
+      this.error = err.message || "Failed to delete group";
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  cancelDeleteGroup() {
+    this.pendingDeleteGroupId = null;
   }
 
   // ============================================================================
@@ -312,16 +366,33 @@ export class CarPoolAppStore extends AvBaseStore {
       this.error = "Archived groups cannot log new trips";
       return;
     }
+    if (!this.hasValidTravellerSelection()) {
+      this.error = "Select at least 2 travelling members to calculate today’s rotation.";
+      return;
+    }
+
+    const driver = this.getTodaysDriver();
+    if (!driver) {
+      this.error = "Select at least 2 travelling members to calculate today’s rotation.";
+      return;
+    }
+
+    const travellerIds = new Set(this.travellingMemberIds.map(String));
     this.showCreateTripDrawer = true;
     this.editingTripId = null;
     this.error = null;
     this.createTripForm = {
       tripDate: new Date().toISOString().split("T")[0],
-      actualDriverId: "",
-      passengers: [],
-      absentees: [],
+      actualDriverId: driver.id,
+      passengers: this.getOrderedActiveMembers()
+        .filter((member) => travellerIds.has(member.id) && member.id !== driver.id)
+        .map((member) => member.id),
+      absentees: this.getOrderedActiveMembers()
+        .filter((member) => !travellerIds.has(member.id) && member.id !== driver.id)
+        .map((member) => member.id),
       notes: "",
     };
+    this.sanitizeTripFormDriverSelections();
   }
 
   closeCreateTripDrawer() {
@@ -384,6 +455,26 @@ export class CarPoolAppStore extends AvBaseStore {
 
   getTripAbsenteeOptions() {
     return this.selectedGroupDetail.members.filter((member) => member.id !== this.createTripForm.actualDriverId);
+  }
+
+  getTravellingMembers() {
+    const travellingIds = new Set(this.travellingMemberIds.map(String));
+    return this.getOrderedActiveMembers().filter((member) => travellingIds.has(member.id));
+  }
+
+  getTravellingMemberCount() {
+    return this.getTravellingMembers().length;
+  }
+
+  hasValidTravellerSelection() {
+    return this.getTravellingMemberCount() >= 2;
+  }
+
+  onTravellingMembersChange() {
+    const activeMemberIds = new Set(this.getOrderedActiveMembers().map((member) => member.id));
+    this.travellingMemberIds = this.travellingMemberIds
+      .map(String)
+      .filter((memberId, index, allIds) => activeMemberIds.has(memberId) && allIds.indexOf(memberId) === index);
   }
 
   togglePassenger(memberId: string) {
@@ -515,10 +606,12 @@ export class CarPoolAppStore extends AvBaseStore {
   }
 
   getTodaysDriver(): CarPoolMember | null {
+    if (!this.hasValidTravellerSelection()) return null;
     return this.getDriverSuggestionQueue(1)[0] ?? null;
   }
 
   getNextDrivers(count: number = 3): CarPoolMember[] {
+    if (!this.hasValidTravellerSelection()) return [];
     return this.getDriverSuggestionQueue(count + 1).slice(1);
   }
 
@@ -602,6 +695,14 @@ export class CarPoolAppStore extends AvBaseStore {
     }
   }
 
+  private parseCurrentUser(value: any) {
+    const roleId = Number(value?.roleId);
+    return {
+      id: typeof value?.id === "string" ? value.id : null,
+      roleId: Number.isFinite(roleId) ? roleId : null,
+    };
+  }
+
   private normalizeWorkingDays(values: Array<string | number>) {
     return values
       .map((value) => typeof value === "number" ? value : Number.parseInt(value, 10))
@@ -616,31 +717,48 @@ export class CarPoolAppStore extends AvBaseStore {
   }
 
   private getDriverSuggestionQueue(count: number) {
-    const members = this.getOrderedActiveMembers();
-    if (!members.length) return [];
+    const members = this.getEligibleRotationMembers();
+    if (members.length < 2) return [];
 
+    const eligibleMemberIds = new Set(members.map((member) => member.id));
     const targetDate = new Date();
     const targetKey = this.toDateKey(targetDate);
     const latestTrip = [...this.tripHistory]
-      .filter((trip) => trip.actualDriverId && this.toDateKey(trip.tripDate) <= targetKey)
+      .filter((trip) => {
+        const driverId = trip.actualDriverId ? String(trip.actualDriverId) : "";
+        return driverId && eligibleMemberIds.has(driverId) && this.toDateKey(trip.tripDate) <= targetKey;
+      })
       .sort((a, b) => this.toDateKey(b.tripDate).localeCompare(this.toDateKey(a.tripDate)))[0];
     let latestDriverId = latestTrip?.actualDriverId ? String(latestTrip.actualDriverId) : null;
+
+    const fullGroupMembers = this.getOrderedActiveMembers();
+    const rawScores = fullGroupMembers.map((member) => member.fairness?.fairnessScore ?? 0);
+    const averageScore = rawScores.length > 0
+      ? rawScores.reduce((total, score) => total + score, 0) / rawScores.length
+      : 0;
 
     const candidates = members.map((member) => ({
       member,
       driveCount: member.fairness?.driveCount ?? 0,
-      fairnessScore: member.fairness?.fairnessScore ?? 0,
+      rideCount: member.fairness?.rideCount ?? 0,
+      absenceCount: member.fairness?.absenceCount ?? 0,
+      missedRideCount: member.fairness?.missedRideCount ?? 0,
+      fairnessScore: (member.fairness?.fairnessScore ?? 0) - averageScore,
     }));
     const queue: CarPoolMember[] = [];
 
     for (let index = 0; index < count; index += 1) {
-      const next = this.allDriveCountsEqual(candidates)
-        ? this.pickNextRotationCandidate(candidates, latestDriverId)
-        : this.pickNextDriverCandidate(candidates, latestDriverId);
+      const next = this.pickNextDriverCandidate(candidates, latestDriverId);
       if (!next) break;
       queue.push(next.member);
+
       next.driveCount += 1;
       next.fairnessScore += 1;
+      for (const candidate of candidates) {
+        if (candidate.member.id === next.member.id) continue;
+        candidate.rideCount += 1;
+        candidate.fairnessScore -= 1;
+      }
       latestDriverId = next.member.id;
     }
 
@@ -650,28 +768,36 @@ export class CarPoolAppStore extends AvBaseStore {
   private pickNextDriverCandidate(candidates: DriverCandidate[], latestDriverId: string | null) {
     if (!candidates.length) return null;
 
-    const lowestDriveCount = Math.min(...candidates.map((candidate) => candidate.driveCount));
-    let eligible = candidates.filter((candidate) => candidate.driveCount === lowestDriveCount);
+    const ranked = [...candidates].sort((a, b) => this.compareDriverCandidates(a, b));
+    const best = ranked[0] ?? null;
+    if (!best) return null;
 
-    if (latestDriverId && eligible.length > 1) {
-      const withoutLatest = eligible.filter((candidate) => candidate.member.id !== latestDriverId);
-      if (withoutLatest.length > 0) {
-        eligible = withoutLatest;
-      }
+    let tied = ranked.filter((candidate) => this.hasSameFairnessRank(candidate, best));
+
+    if (latestDriverId && tied.length > 1 && tied.some((candidate) => candidate.member.id === latestDriverId)) {
+      tied = tied.filter((candidate) => candidate.member.id !== latestDriverId);
     }
 
-    return eligible.sort((a, b) => {
-      if (a.fairnessScore !== b.fairnessScore) {
-        return a.fairnessScore - b.fairnessScore;
-      }
-      if (a.member.rotationOrder !== b.member.rotationOrder) {
-        return a.member.rotationOrder - b.member.rotationOrder;
-      }
-      return a.member.name.localeCompare(b.member.name);
-    })[0] ?? null;
+    return this.pickByRotationContinuity(tied, latestDriverId) ?? best;
   }
 
-  private pickNextRotationCandidate(candidates: DriverCandidate[], latestDriverId: string | null) {
+  private compareDriverCandidates(a: DriverCandidate, b: DriverCandidate) {
+    if (a.driveCount !== b.driveCount) return a.driveCount - b.driveCount;
+    if (a.fairnessScore !== b.fairnessScore) return a.fairnessScore - b.fairnessScore;
+    if (a.missedRideCount !== b.missedRideCount) return b.missedRideCount - a.missedRideCount;
+    if (a.absenceCount !== b.absenceCount) return b.absenceCount - a.absenceCount;
+    if (a.member.rotationOrder !== b.member.rotationOrder) return a.member.rotationOrder - b.member.rotationOrder;
+    return a.member.name.localeCompare(b.member.name);
+  }
+
+  private hasSameFairnessRank(candidate: DriverCandidate, best: DriverCandidate) {
+    return candidate.driveCount === best.driveCount &&
+      candidate.fairnessScore === best.fairnessScore &&
+      candidate.missedRideCount === best.missedRideCount &&
+      candidate.absenceCount === best.absenceCount;
+  }
+
+  private pickByRotationContinuity(candidates: DriverCandidate[], latestDriverId: string | null) {
     const orderedCandidates = [...candidates].sort((a, b) => {
       if (a.member.rotationOrder !== b.member.rotationOrder) {
         return a.member.rotationOrder - b.member.rotationOrder;
@@ -679,18 +805,15 @@ export class CarPoolAppStore extends AvBaseStore {
       return a.member.name.localeCompare(b.member.name);
     });
 
+    if (!orderedCandidates.length) return null;
     if (!latestDriverId) return orderedCandidates[0] ?? null;
 
-    const latestIndex = orderedCandidates.findIndex((candidate) => candidate.member.id === latestDriverId);
-    if (latestIndex < 0) return orderedCandidates[0] ?? null;
+    const selectedOrder = this.getEligibleRotationMembers();
+    const latestMember = selectedOrder.find((member) => member.id === latestDriverId);
+    if (!latestMember) return orderedCandidates[0] ?? null;
 
-    return orderedCandidates[(latestIndex + 1) % orderedCandidates.length] ?? null;
-  }
-
-  private allDriveCountsEqual(candidates: DriverCandidate[]) {
-    if (candidates.length <= 1) return true;
-    const firstDriveCount = candidates[0].driveCount;
-    return candidates.every((candidate) => candidate.driveCount === firstDriveCount);
+    const nextAfterLatest = orderedCandidates.find((candidate) => candidate.member.rotationOrder > latestMember.rotationOrder);
+    return nextAfterLatest ?? orderedCandidates[0] ?? null;
   }
 
   private getRelativeFairnessScore(member: CarPoolMember) {
@@ -713,6 +836,15 @@ export class CarPoolAppStore extends AvBaseStore {
     return [...this.selectedGroupDetail.members]
       .filter((member) => member.isActive !== false)
       .sort((a, b) => a.rotationOrder - b.rotationOrder);
+  }
+
+  private getEligibleRotationMembers() {
+    const travellingIds = new Set(this.travellingMemberIds.map(String));
+    return this.getOrderedActiveMembers().filter((member) => travellingIds.has(member.id));
+  }
+
+  private resetTravellingMembers() {
+    this.travellingMemberIds = this.getOrderedActiveMembers().map((member) => member.id);
   }
 
   private toDateKey(date: Date | string) {

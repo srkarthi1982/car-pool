@@ -315,6 +315,56 @@ export const server = {
     },
   }),
 
+  // Delete a group and all V1 child records
+  deleteGroup: defineAction({
+    input: z.object({ groupId: z.string() }),
+    handler: async (input, context) => {
+      const user = requireUser(context);
+
+      const group = await db
+        .select()
+        .from(CarPoolGroups as any)
+        .where(eq((CarPoolGroups as any).id, input.groupId))
+        .limit(1);
+
+      if (group.length === 0) {
+        throw new ActionError({ code: "NOT_FOUND", message: "Group not found" });
+      }
+
+      const isOwner = group[0].ownerId === user.id;
+      const isAdmin = Number(user.roleId) === 1;
+
+      if (!isOwner && !isAdmin) {
+        throw new ActionError({ code: "FORBIDDEN", message: "Only the group owner or an admin can delete this group" });
+      }
+
+      const trips = await db
+        .select()
+        .from(CarPoolTrips as any)
+        .where(eq((CarPoolTrips as any).groupId, input.groupId));
+
+      for (const trip of trips) {
+        await db
+          .delete(CarPoolTripParticipants as any)
+          .where(eq((CarPoolTripParticipants as any).tripId, trip.id));
+      }
+
+      await db
+        .delete(CarPoolTrips as any)
+        .where(eq((CarPoolTrips as any).groupId, input.groupId));
+
+      await db
+        .delete(CarPoolMembers as any)
+        .where(eq((CarPoolMembers as any).groupId, input.groupId));
+
+      await db
+        .delete(CarPoolGroups as any)
+        .where(eq((CarPoolGroups as any).id, input.groupId));
+
+      return { success: true };
+    },
+  }),
+
   // Add members to group
   addGroupMembers: defineAction({
     input: z.object({

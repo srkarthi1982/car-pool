@@ -43,6 +43,10 @@ interface ImportMetaEnv {
 
 interface Window {
   Alpine: import('alpinejs').Alpine;
+  AvDialog?: {
+    open?: (targetId: string) => void;
+    close?: (targetId: string) => void;
+  };
 }
 
 declare namespace App {

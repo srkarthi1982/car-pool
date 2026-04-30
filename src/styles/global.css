@@ -122,8 +122,15 @@
   grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
 }
 
+.app-traveller-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
 .app-day-chip,
-.app-check-item {
+.app-check-item,
+.app-traveller-chip {
   display: flex;
   align-items: center;
   gap: 0.55rem;
@@ -135,13 +142,33 @@
 }
 
 .app-day-chip .av-inline-check,
-.app-check-item .av-inline-check {
+.app-check-item .av-inline-check,
+.app-traveller-chip .av-inline-check {
   width: 100%;
   color: inherit;
 }
 
+.app-traveller-chip {
+  border-color: rgba(14, 116, 144, 0.36);
+  background: rgba(207, 250, 254, 0.72);
+  color: rgb(21, 94, 117);
+  font-weight: 700;
+}
+
+.app-traveller-chip:has(.av-checkbox:not(:checked)) {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(241, 245, 249, 0.76);
+  color: rgba(71, 85, 105, 0.74);
+}
+
 .app-check-item:has(.av-checkbox:disabled) {
   opacity: 0.62;
+}
+
+.app-inline-warning {
+  margin: 0;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .app-checklist,
@@ -345,6 +372,30 @@
 
 .app-drawer-section--muted {
   border-style: dashed;
+}
+
+.app-danger-zone {
+  border-color: rgba(185, 28, 28, 0.26);
+  background: rgba(254, 242, 242, 0.84);
+}
+
+.app-danger-zone :where(.av-card-heading, .app-list-title) {
+  color: rgb(127, 29, 29);
+}
+
+.app-danger-zone :where(.av-text-soft) {
+  color: rgba(127, 29, 29, 0.72);
+}
+
+.app-danger-button {
+  border-color: rgba(185, 28, 28, 0.42);
+  color: rgb(153, 27, 27);
+}
+
+.app-danger-button:hover {
+  border-color: rgba(185, 28, 28, 0.62);
+  background: rgba(254, 226, 226, 0.78);
+  color: rgb(127, 29, 29);
 }
 
 @media (min-width: 900px) {
