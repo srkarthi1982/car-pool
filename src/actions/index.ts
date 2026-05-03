@@ -18,7 +18,46 @@ import { requireUser } from "./_guards";
 // ============================================================================
 
 function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function parseTripDateInput(value: string) {
+  const tripDate = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00`)
+    : new Date(value);
+
+  if (Number.isNaN(tripDate.getTime())) {
+    throw new ActionError({ code: "BAD_REQUEST", message: "Trip date is invalid" });
+  }
+
+  return tripDate;
+}
+
+async function getGroupById(groupId: string) {
+  const group = await db
+    .select()
+    .from(CarPoolGroups as any)
+    .where(eq((CarPoolGroups as any).id, groupId))
+    .limit(1);
+
+  if (group.length === 0) {
+    throw new ActionError({ code: "NOT_FOUND", message: "Group not found" });
+  }
+
+  return group[0];
+}
+
+async function requireGroupManager(groupId: string, context: any) {
+  const user = requireUser(context);
+  const group = await getGroupById(groupId);
+  const isOwner = group.ownerId === user.id;
+  const isAdmin = Number(user.roleId) === 1;
+
+  if (!isOwner && !isAdmin) {
+    throw new ActionError({ code: "FORBIDDEN", message: "Only the group owner or an admin can manage this group" });
+  }
+
+  return { user, group };
 }
 
 // Get active members for a group
@@ -319,24 +358,7 @@ export const server = {
   deleteGroup: defineAction({
     input: z.object({ groupId: z.string() }),
     handler: async (input, context) => {
-      const user = requireUser(context);
-
-      const group = await db
-        .select()
-        .from(CarPoolGroups as any)
-        .where(eq((CarPoolGroups as any).id, input.groupId))
-        .limit(1);
-
-      if (group.length === 0) {
-        throw new ActionError({ code: "NOT_FOUND", message: "Group not found" });
-      }
-
-      const isOwner = group[0].ownerId === user.id;
-      const isAdmin = Number(user.roleId) === 1;
-
-      if (!isOwner && !isAdmin) {
-        throw new ActionError({ code: "FORBIDDEN", message: "Only the group owner or an admin can delete this group" });
-      }
+      await requireGroupManager(input.groupId, context);
 
       const trips = await db
         .select()
@@ -365,6 +387,27 @@ export const server = {
     },
   }),
 
+  // Rename a group
+  renameGroup: defineAction({
+    input: z.object({
+      groupId: z.string(),
+      name: z.string().trim().min(1, "Group name is required"),
+    }),
+    handler: async (input, context) => {
+      await requireGroupManager(input.groupId, context);
+
+      await db
+        .update(CarPoolGroups as any)
+        .set({
+          name: input.name,
+          updatedAt: new Date(),
+        })
+        .where(eq((CarPoolGroups as any).id, input.groupId));
+
+      return { success: true };
+    },
+  }),
+
   // Add members to group
   addGroupMembers: defineAction({
     input: z.object({
@@ -375,18 +418,7 @@ export const server = {
       }))
     }),
     handler: async (input, context) => {
-      const user = requireUser(context);
-
-      // Check ownership
-      const group = await db
-        .select()
-        .from(CarPoolGroups as any)
-        .where(and(eq((CarPoolGroups as any).id, input.groupId), eq((CarPoolGroups as any).ownerId, user.id)))
-        .limit(1);
-
-      if (group.length === 0) {
-        throw new ActionError({ code: "FORBIDDEN", message: "Not group owner" });
-      }
+      await requireGroupManager(input.groupId, context);
 
       const existingMembers = await getActiveMembers(input.groupId);
       const maxOrder = existingMembers.length > 0 ? Math.max(...existingMembers.map(m => m.rotationOrder)) : -1;
@@ -404,6 +436,134 @@ export const server = {
           updatedAt: new Date(),
         });
       }
+
+      return { success: true };
+    },
+  }),
+
+  // Rename a member inside this group only
+  renameGroupMember: defineAction({
+    input: z.object({
+      groupId: z.string(),
+      memberId: z.string(),
+      name: z.string().trim().min(1, "Member name is required"),
+    }),
+    handler: async (input, context) => {
+      await requireGroupManager(input.groupId, context);
+
+      const member = await db
+        .select()
+        .from(CarPoolMembers as any)
+        .where(and(
+          eq((CarPoolMembers as any).id, input.memberId),
+          eq((CarPoolMembers as any).groupId, input.groupId),
+          eq((CarPoolMembers as any).isActive, true)
+        ))
+        .limit(1);
+
+      if (member.length === 0) {
+        throw new ActionError({ code: "NOT_FOUND", message: "Member not found" });
+      }
+
+      await db
+        .update(CarPoolMembers as any)
+        .set({
+          name: input.name,
+          updatedAt: new Date(),
+        })
+        .where(eq((CarPoolMembers as any).id, input.memberId));
+
+      return { success: true };
+    },
+  }),
+
+  // Remove a member and their non-driver group participation rows
+  removeGroupMember: defineAction({
+    input: z.object({
+      groupId: z.string(),
+      memberId: z.string(),
+    }),
+    handler: async (input, context) => {
+      const { group } = await requireGroupManager(input.groupId, context);
+
+      const member = await db
+        .select()
+        .from(CarPoolMembers as any)
+        .where(and(
+          eq((CarPoolMembers as any).id, input.memberId),
+          eq((CarPoolMembers as any).groupId, input.groupId),
+          eq((CarPoolMembers as any).isActive, true)
+        ))
+        .limit(1);
+
+      if (member.length === 0) {
+        throw new ActionError({ code: "NOT_FOUND", message: "Member not found" });
+      }
+
+      if (member[0].userId === group.ownerId) {
+        throw new ActionError({ code: "CONFLICT", message: "Group owner cannot be removed from the group" });
+      }
+
+      const drivenTrips = await db
+        .select()
+        .from(CarPoolTrips as any)
+        .where(and(
+          eq((CarPoolTrips as any).groupId, input.groupId),
+          eq((CarPoolTrips as any).actualDriverId, input.memberId)
+        ))
+        .limit(1);
+
+      if (drivenTrips.length > 0) {
+        throw new ActionError({
+          code: "CONFLICT",
+          message: "This member has driven trips. Reassign or delete those trips before removing them.",
+        });
+      }
+
+      const groupTrips = await db
+        .select()
+        .from(CarPoolTrips as any)
+        .where(eq((CarPoolTrips as any).groupId, input.groupId));
+
+      const groupTripIds = groupTrips.map((trip) => trip.id);
+      if (groupTripIds.length > 0) {
+        const driverParticipantRows = await db
+          .select()
+          .from(CarPoolTripParticipants as any)
+          .where(and(
+            eq((CarPoolTripParticipants as any).memberId, input.memberId),
+            eq((CarPoolTripParticipants as any).role, "driver"),
+            eq((CarPoolTripParticipants as any).attendanceStatus, "present"),
+            sql`${(CarPoolTripParticipants as any).tripId} IN (${sql.join(groupTripIds, sql`, `)})`
+          ))
+          .limit(1);
+
+        if (driverParticipantRows.length > 0) {
+          throw new ActionError({
+            code: "CONFLICT",
+            message: "This member has driven trips. Reassign or delete those trips before removing them.",
+          });
+        }
+      }
+
+      await db
+        .update(CarPoolTrips as any)
+        .set({
+          assignedDriverId: null,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq((CarPoolTrips as any).groupId, input.groupId),
+          eq((CarPoolTrips as any).assignedDriverId, input.memberId)
+        ));
+
+      await db
+        .delete(CarPoolTripParticipants as any)
+        .where(eq((CarPoolTripParticipants as any).memberId, input.memberId));
+
+      await db
+        .delete(CarPoolMembers as any)
+        .where(eq((CarPoolMembers as any).id, input.memberId));
 
       return { success: true };
     },
@@ -450,14 +610,11 @@ export const server = {
         throw new ActionError({ code: "CONFLICT", message: "Archived groups cannot log new trips" });
       }
 
-      const tripDate = new Date(input.tripDate);
-      if (Number.isNaN(tripDate.getTime())) {
-        throw new ActionError({ code: "BAD_REQUEST", message: "Trip date is invalid" });
-      }
+      const tripDate = parseTripDateInput(input.tripDate);
 
       const workingDays = Array.isArray(group[0].workingDays) ? group[0].workingDays : [];
       if (workingDays.length > 0 && !workingDays.includes(tripDate.getDay())) {
-        throw new ActionError({ code: "BAD_REQUEST", message: "Trip date is outside the group's working days" });
+        throw new ActionError({ code: "BAD_REQUEST", message: "This date is outside the group’s selected travel days." });
       }
 
       // Check no duplicate trip date
@@ -565,14 +722,11 @@ export const server = {
         throw new ActionError({ code: "CONFLICT", message: "Archived groups cannot edit trips" });
       }
 
-      const tripDate = new Date(input.tripDate);
-      if (Number.isNaN(tripDate.getTime())) {
-        throw new ActionError({ code: "BAD_REQUEST", message: "Trip date is invalid" });
-      }
+      const tripDate = parseTripDateInput(input.tripDate);
 
       const workingDays = Array.isArray(group[0].workingDays) ? group[0].workingDays : [];
       if (workingDays.length > 0 && !workingDays.includes(tripDate.getDay())) {
-        throw new ActionError({ code: "BAD_REQUEST", message: "Trip date is outside the group's working days" });
+        throw new ActionError({ code: "BAD_REQUEST", message: "This date is outside the group’s selected travel days." });
       }
 
       const existingTrips = await db

@@ -94,10 +94,13 @@ export class CarPoolAppStore extends AvBaseStore {
   error: string | null = null;
   currentView: 'groups' | 'group-dashboard' | 'trip-history' | 'trip-detail' = 'groups';
   showCreateGroupDrawer = false;
+  showEditGroupDrawer = false;
   showAddMembersDrawer = false;
+  showEditMemberDrawer = false;
   showCreateTripDrawer = false;
   editingTripId: string | null = null;
   pendingDeleteGroupId: string | null = null;
+  pendingRemoveMemberId: string | null = null;
   travellingMemberIds: string[] = [];
 
   // Form state
@@ -106,8 +109,17 @@ export class CarPoolAppStore extends AvBaseStore {
     workingDays: [1, 2, 3, 4, 5], // Mon-Fri
   };
 
+  editGroupForm = {
+    name: "",
+  };
+
   addMembersForm = {
     members: [] as Array<{ userId: string; name: string }>,
+  };
+
+  editMemberForm = {
+    memberId: "",
+    name: "",
   };
 
   createTripForm = {
@@ -271,11 +283,59 @@ export class CarPoolAppStore extends AvBaseStore {
     }
   }
 
-  canDeleteSelectedGroup() {
+  canManageSelectedGroup() {
     const group = this.selectedGroupDetail.group;
     if (!group) return false;
     if (this.currentUser.roleId === 1) return true;
     return Boolean(this.currentUser.id && group.ownerId === this.currentUser.id);
+  }
+
+  canDeleteSelectedGroup() {
+    return this.canManageSelectedGroup();
+  }
+
+  openEditGroupDrawer() {
+    const group = this.selectedGroupDetail.group;
+    if (!group || !this.canManageSelectedGroup()) {
+      this.error = "Only the group owner or an admin can rename this group";
+      return;
+    }
+
+    this.editGroupForm.name = group.name ?? "";
+    this.showEditGroupDrawer = true;
+    this.error = null;
+  }
+
+  closeEditGroupDrawer() {
+    this.showEditGroupDrawer = false;
+    this.editGroupForm.name = "";
+  }
+
+  async submitEditGroup() {
+    if (!this.selectedGroupId) return;
+    const name = this.editGroupForm.name.trim();
+    if (!name) {
+      this.error = "Group name is required";
+      return;
+    }
+
+    this.isLoading = true;
+    this.error = null;
+    try {
+      const result = await actions.renameGroup({
+        groupId: this.selectedGroupId,
+        name,
+      });
+      if (result.error) {
+        throw new Error(result.error.message || "Failed to rename group");
+      }
+      await this.loadGroupDetail();
+      this.closeEditGroupDrawer();
+    } catch (err: any) {
+      this.error = err.message || "Failed to rename group";
+    } finally {
+      this.isLoading = false;
+    }
   }
 
   openDeleteGroupConfirm() {
@@ -286,7 +346,7 @@ export class CarPoolAppStore extends AvBaseStore {
 
     this.pendingDeleteGroupId = this.selectedGroupId;
     this.error = null;
-    window.AvDialog?.open?.("delete-group-dialog");
+    this.openConfirmDialog("delete-group-dialog");
   }
 
   async confirmDeleteGroup() {
@@ -318,6 +378,10 @@ export class CarPoolAppStore extends AvBaseStore {
   // ============================================================================
 
   openAddMembersDrawer() {
+    if (!this.canManageSelectedGroup()) {
+      this.error = "Only the group owner or an admin can add members";
+      return;
+    }
     this.showAddMembersDrawer = true;
     this.error = null;
     this.addMembersForm.members = [];
@@ -338,6 +402,109 @@ export class CarPoolAppStore extends AvBaseStore {
     this.addMembersForm.members.splice(index, 1);
   }
 
+  openEditMemberDrawer(memberId: string) {
+    const member = this.selectedGroupDetail.members.find((candidate) => candidate.id === memberId);
+    if (!member || !this.canManageSelectedGroup()) {
+      this.error = "Only the group owner or an admin can rename members";
+      return;
+    }
+
+    this.editMemberForm = {
+      memberId: member.id,
+      name: member.name ?? "",
+    };
+    this.showEditMemberDrawer = true;
+    this.error = null;
+  }
+
+  closeEditMemberDrawer() {
+    this.showEditMemberDrawer = false;
+    this.editMemberForm = {
+      memberId: "",
+      name: "",
+    };
+  }
+
+  async submitEditMember() {
+    if (!this.selectedGroupId || !this.editMemberForm.memberId) return;
+    const name = this.editMemberForm.name.trim();
+    if (!name) {
+      this.error = "Member name is required";
+      return;
+    }
+
+    this.isLoading = true;
+    this.error = null;
+    try {
+      const result = await actions.renameGroupMember({
+        groupId: this.selectedGroupId,
+        memberId: this.editMemberForm.memberId,
+        name,
+      });
+      if (result.error) {
+        throw new Error(result.error.message || "Failed to rename member");
+      }
+      await this.refreshGroupWorkspaceData();
+      if (this.selectedTrip.trip) {
+        await this.loadTripDetail(this.selectedTrip.trip.id);
+      }
+      this.closeEditMemberDrawer();
+    } catch (err: any) {
+      this.error = err.message || "Failed to rename member";
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  openRemoveMemberConfirm(memberId: string) {
+    if (!this.selectedGroupId || !this.canManageSelectedGroup()) {
+      this.error = "Only the group owner or an admin can remove members";
+      return;
+    }
+
+    const member = this.selectedGroupDetail.members.find((candidate) => candidate.id === memberId);
+    if (!member) {
+      this.error = "Member not found";
+      return;
+    }
+
+    this.pendingRemoveMemberId = memberId;
+    this.error = null;
+    this.openConfirmDialog("remove-member-dialog");
+  }
+
+  getPendingRemoveMemberName() {
+    if (!this.pendingRemoveMemberId) return "this member";
+    return this.selectedGroupDetail.members.find((member) => member.id === this.pendingRemoveMemberId)?.name ?? "this member";
+  }
+
+  async confirmRemoveMember() {
+    if (!this.selectedGroupId || !this.pendingRemoveMemberId) return;
+
+    const memberId = this.pendingRemoveMemberId;
+    this.isLoading = true;
+    this.error = null;
+    try {
+      const result = await actions.removeGroupMember({
+        groupId: this.selectedGroupId,
+        memberId,
+      });
+      if (result.error) {
+        throw new Error(result.error.message || "Failed to remove member");
+      }
+      this.pendingRemoveMemberId = null;
+      await this.refreshGroupWorkspaceData();
+    } catch (err: any) {
+      this.error = err.message || "Failed to remove member";
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  cancelRemoveMember() {
+    this.pendingRemoveMemberId = null;
+  }
+
   async submitAddMembers() {
     if (!this.selectedGroupId || this.addMembersForm.members.length === 0) return;
 
@@ -348,7 +515,7 @@ export class CarPoolAppStore extends AvBaseStore {
         groupId: this.selectedGroupId,
         members: this.addMembersForm.members,
       });
-      await this.loadGroupDetail();
+      await this.refreshGroupWorkspaceData();
       this.closeAddMembersDrawer();
     } catch (err: any) {
       this.error = err.message || "Failed to add members";
@@ -449,6 +616,17 @@ export class CarPoolAppStore extends AvBaseStore {
     this.sanitizeTripFormDriverSelections();
   }
 
+  onTripDateChange() {
+    if (!this.isTripDateOnWorkingDay()) {
+      this.error = "This date is outside the group’s selected travel days.";
+      return;
+    }
+
+    if (this.error === "This date is outside the group’s selected travel days.") {
+      this.error = null;
+    }
+  }
+
   getTripPassengerOptions() {
     return this.selectedGroupDetail.members.filter((member) => member.id !== this.createTripForm.actualDriverId);
   }
@@ -524,6 +702,11 @@ export class CarPoolAppStore extends AvBaseStore {
       return;
     }
 
+    if (!this.isTripDateOnWorkingDay()) {
+      this.error = "This date is outside the group’s selected travel days.";
+      return;
+    }
+
     this.sanitizeTripFormDriverSelections();
 
     this.isLoading = true;
@@ -538,13 +721,18 @@ export class CarPoolAppStore extends AvBaseStore {
         notes: this.createTripForm.notes,
       };
 
+      let result;
       if (this.editingTripId) {
-        await actions.updateTrip({
+        result = await actions.updateTrip({
           tripId: this.editingTripId,
           ...payload,
         });
       } else {
-        await actions.createTrip(payload);
+        result = await actions.createTrip(payload);
+      }
+
+      if (result.error) {
+        throw new Error(result.error.message || (this.editingTripId ? "Failed to update trip" : "Failed to create trip"));
       }
 
       await this.loadGroupDetail();
@@ -589,6 +777,11 @@ export class CarPoolAppStore extends AvBaseStore {
     } finally {
       this.isLoading = false;
     }
+  }
+
+  async refreshGroupWorkspaceData() {
+    await this.loadGroupDetail();
+    await this.loadTripHistory();
   }
 
   // ============================================================================
@@ -714,6 +907,18 @@ export class CarPoolAppStore extends AvBaseStore {
     if (!driverId) return;
     this.createTripForm.passengers = this.createTripForm.passengers.filter((memberId) => memberId !== driverId);
     this.createTripForm.absentees = this.createTripForm.absentees.filter((memberId) => memberId !== driverId);
+  }
+
+  private isTripDateOnWorkingDay() {
+    const workingDays = Array.isArray(this.selectedGroupDetail.group?.workingDays)
+      ? this.selectedGroupDetail.group.workingDays
+      : [];
+    if (workingDays.length === 0) return true;
+
+    const tripDate = this.parseLocalDateInput(this.createTripForm.tripDate);
+    if (!tripDate) return true;
+
+    return workingDays.includes(tripDate.getDay());
   }
 
   private getDriverSuggestionQueue(count: number) {
@@ -859,6 +1064,22 @@ export class CarPoolAppStore extends AvBaseStore {
       return new Date().toISOString().split("T")[0];
     }
     return this.toDateKey(parsedDate);
+  }
+
+  private parseLocalDateInput(value: string) {
+    if (!value) return null;
+    const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? new Date(`${value}T00:00:00`)
+      : new Date(value);
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+  }
+
+  private openConfirmDialog(dialogId: string) {
+    if (typeof document === "undefined") return;
+    const dialog = document.getElementById(dialogId) as HTMLDialogElement | null;
+    if (!dialog?.open && typeof dialog?.showModal === "function") {
+      dialog.showModal();
+    }
   }
 
   private visit(path: string) {

@@ -85,11 +85,28 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
             <div class="av-auth-stack-xs">
               <a href="/app" class="av-text-soft app-back-link">← Back to groups</a>
               <p class="av-kicker">Car Pool</p>
-              <h1 class="av-section-title">{groupName}</h1>
+              <div class="app-title-row">
+                <h1 class="av-section-title" x-text={`selectedGroupDetail.group?.name || ${JSON.stringify(groupName)}`}>{groupName}</h1>
+                <template x-if="canManageSelectedGroup()">
+                  <AvButton
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="app-icon-button"
+                    aria-label="Edit group"
+                    title="Edit group"
+                    @click="openEditGroupDrawer()"
+                  >
+                    <AvIcon name="edit" size="sm" />
+                  </AvButton>
+                </template>
+              </div>
               <p class="av-text-soft">Overview, members, trips, and fairness stay together in one protected workspace.</p>
             </div>
             <div class="av-row-wrap">
-              <AvButton type="button" variant="ghost" @click="openAddMembersDrawer()">Add members</AvButton>
+              <template x-if="canManageSelectedGroup()">
+                <AvButton type="button" variant="ghost" @click="openAddMembersDrawer()">Add members</AvButton>
+              </template>
               <AvButton
                 type="button"
                 @click="openCreateTripDrawer()"
@@ -226,6 +243,32 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                             x-text="getFairnessStatus(member)"
                           ></span>
                           <span class="app-score-pill" x-text="getFairnessScore(member)"></span>
+                          <template x-if="canManageSelectedGroup()">
+                            <div class="app-trip-actions" aria-label="Member actions">
+                              <AvButton
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="app-icon-button"
+                                aria-label="Edit member name"
+                                title="Edit member name"
+                                @click="openEditMemberDrawer(member.id)"
+                              >
+                                <AvIcon name="edit" size="sm" />
+                              </AvButton>
+                              <AvButton
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="app-icon-button app-icon-button--danger"
+                                aria-label="Remove member"
+                                title="Remove member"
+                                @click="openRemoveMemberConfirm(member.id)"
+                              >
+                                <AvIcon name="trash" size="sm" />
+                              </AvButton>
+                            </div>
+                          </template>
                         </div>
                       </div>
                     </template>
@@ -380,6 +423,41 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
           </AvCard>
         </template>
 
+        <template x-if="showEditGroupDrawer">
+          <div
+            class="av-drawer-overlay"
+            @click.self="closeEditGroupDrawer()"
+            @keydown.escape.window="closeEditGroupDrawer()"
+            @close-drawer="closeEditGroupDrawer()"
+            x-cloak
+          >
+            <AvDrawer title="Edit group" description="Rename this car pool group for everyone in the workspace.">
+              <form id="edit-group-form" class="av-auth-stack-md" @submit.prevent="submitEditGroup()">
+                <AvInput
+                  label="Group name"
+                  name="edit-group-name"
+                  x-model="editGroupForm.name"
+                  required
+                />
+              </form>
+
+              <Fragment slot="footer">
+                <div class="av-auth-stack-xs av-w-full">
+                  <template x-if="error">
+                    <div class="av-alert av-alert-danger" role="status" x-text="error"></div>
+                  </template>
+                  <div class="av-row-wrap av-drawer-footer-actions">
+                    <AvButton variant="ghost" type="button" @click="closeEditGroupDrawer()">Cancel</AvButton>
+                    <AvButton type="submit" form="edit-group-form" :disabled="isLoading">
+                      <span x-text="isLoading ? 'Saving…' : 'Save group'"></span>
+                    </AvButton>
+                  </div>
+                </div>
+              </Fragment>
+            </AvDrawer>
+          </div>
+        </template>
+
         <template x-if="showAddMembersDrawer">
           <div
             class="av-drawer-overlay"
@@ -442,6 +520,41 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
           </div>
         </template>
 
+        <template x-if="showEditMemberDrawer">
+          <div
+            class="av-drawer-overlay"
+            @click.self="closeEditMemberDrawer()"
+            @keydown.escape.window="closeEditMemberDrawer()"
+            @close-drawer="closeEditMemberDrawer()"
+            x-cloak
+          >
+            <AvDrawer title="Edit member name" description="Rename this member inside this group only.">
+              <form id="edit-member-form" class="av-auth-stack-md" @submit.prevent="submitEditMember()">
+                <AvInput
+                  label="Member display name"
+                  name="edit-member-name"
+                  x-model="editMemberForm.name"
+                  required
+                />
+              </form>
+
+              <Fragment slot="footer">
+                <div class="av-auth-stack-xs av-w-full">
+                  <template x-if="error">
+                    <div class="av-alert av-alert-danger" role="status" x-text="error"></div>
+                  </template>
+                  <div class="av-row-wrap av-drawer-footer-actions">
+                    <AvButton variant="ghost" type="button" @click="closeEditMemberDrawer()">Cancel</AvButton>
+                    <AvButton type="submit" form="edit-member-form" :disabled="isLoading">
+                      <span x-text="isLoading ? 'Saving…' : 'Save member'"></span>
+                    </AvButton>
+                  </div>
+                </div>
+              </Fragment>
+            </AvDrawer>
+          </div>
+        </template>
+
         <template x-if="showCreateTripDrawer">
           <div
             class="av-drawer-overlay"
@@ -458,6 +571,7 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
                   type="date"
                   className="app-drawer-section"
                   x-model="createTripForm.tripDate"
+                  @change="onTripDateChange()"
                   required
                 />
 
@@ -548,6 +662,17 @@ const groupName = groupDetail?.group?.name ?? "Group workspace";
           cancelLabel="Cancel"
           @av-confirm="confirmDeleteGroup()"
           @av-cancel="cancelDeleteGroup()"
+        />
+
+        <AvConfirmDialog
+          id="remove-member-dialog"
+          variant="danger"
+          headline="Remove member?"
+          description="This will permanently delete this member’s group-related attendance and passenger history. If the member has driven trips, removal will be blocked until those trips are reassigned or deleted."
+          confirmLabel="Remove member"
+          cancelLabel="Cancel"
+          @av-confirm="confirmRemoveMember()"
+          @av-cancel="cancelRemoveMember()"
         />
       </div>
     </AvContainer>

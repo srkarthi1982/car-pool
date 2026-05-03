@@ -192,6 +192,7 @@ const initialState = {
                   type="date"
                   className="app-drawer-section"
                   x-model="createTripForm.tripDate"
+                  @change="onTripDateChange()"
                   required
                 />
 
