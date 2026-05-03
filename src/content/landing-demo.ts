@@ -5,150 +5,153 @@ export const createLandingDemoContent = ({
 }: {
   startHref: string;
 }): LandingPageContent => ({
-  categoryLabel: "System Standard",
-  appLabel: "Ansiversa Mini App Baseline",
-  title: "Landing Page Standard V1",
+  categoryLabel: "Car Pool",
+  appLabel: "Group Travel Organizer",
+  title: "Fair car pool rotation without daily confusion",
   subtitle:
-    "A reusable landing system for Ansiversa mini-apps that needs product-level storytelling without drifting away from the calm product rhythm already proven in Resume Builder.",
+    "Track trips, balance driving fairly, and keep your group organized without manual tracking.",
   heroBullets: [
-    "Hero-led product story with one clear action and supporting proof",
-    "Reusable sections that can shift emphasis without feeling mechanical",
-    "Content-driven structure that future mini-apps can populate quickly",
+    "Track daily trips with driver, passengers, and absences",
+    "Suggest the next driver from real group history",
+    "Keep clear records so everyone can see the balance",
   ],
   primaryCta: {
     label: "Open Workspace",
     href: startHref,
   },
   secondaryCta: {
-    label: "See Workflow",
+    label: "See how it works",
     href: "#workflow",
     variant: "ghost",
   },
-  heroNote: "Built as the rollout reference for the 21 READY apps.",
+  heroNote: "Built for groups that share travel and want a simple daily rhythm.",
   heroPanel: {
-    eyebrow: "Reference flow",
-    title: "Story first, then action",
+    eyebrow: "Daily flow",
+    title: "From group to fair rotation",
     steps: [
-      "1. Introduce the app with a strong value proposition",
-      "2. Vary section emphasis so the page does not feel templated",
-      "3. Close with one clear CTA that feels earned",
+      "1. Create your group and add members",
+      "2. Select who is travelling today",
+      "3. Log the trip with driver and passengers",
+      "4. See the next driver suggestion instantly",
     ],
     meta: [
-      { value: "V1.1", label: "Standard" },
-      { value: "Story-led", label: "Landing mode" },
+      { value: "Auto", label: "Next driver updates" },
+      { value: "Balanced", label: "Fairness over time" },
     ],
   },
   features: {
-    title: "What this standard adds",
+    title: "How your group stays organized",
     lead:
-      "This replaces the thin hero-plus-card starter with a fuller landing flow that feels intentional before a user even opens the workspace.",
+      "Car Pool keeps the daily decision simple: who is travelling, who drives, and how the group stays balanced over time.",
     items: [
       {
-        title: "Stronger section hierarchy",
+        title: "Simple daily workflow",
         description:
-          "The hero leads with one clear promise, supporting bullets, and an immediate action instead of generic intro copy, while the rest of the page changes emphasis naturally.",
+          "Create a group, add members, choose who is travelling today, and log each trip with the driver and passengers.",
       },
       {
-        title: "Mixed section patterns",
+        title: "Next driver always known",
         description:
-          "Features, pillars, workflow, and optional proof blocks no longer all rely on the same repeated boxed treatment.",
+          "Car Pool suggests the next driver from real trip history.",
       },
       {
-        title: "Story-backed confidence",
+        title: "Everyone sees the same record",
         description:
-          "A dedicated why-section gives the app room to explain why its workflow feels stronger than a basic utility page.",
+          "Trips, passengers, and absences are visible to the whole group.",
       },
       {
-        title: "Readable product flow",
+        title: "No manual tracking needed",
         description:
-          "How-it-works steps make even text-heavy tools feel approachable by showing the path from entry to outcome.",
+          "Fairness updates automatically as trips are recorded.",
       },
     ],
   },
   pillars: {
-    title: "The standard pillars",
+    title: "What makes it fair and reliable",
     lead:
-      "These are the qualities the rollout should preserve across future mini-app landings.",
+      "Driving responsibility stays balanced using real trip history, without manual tracking or coordination.",
     items: [
       {
-        title: "Calm premium tone",
+        title: "Fair rotation",
         description:
-          "Dark Ansiversa visual language, restrained accents, and readable density instead of loud hero gimmicks or empty breathing space.",
+          "Driving responsibility is balanced across members over time.",
       },
       {
-        title: "Product-specific messaging",
+        title: "Real history",
         description:
-          "Every section should talk about the app’s real workflow, output, or decision support rather than broad AI claims.",
+          "Every trip is recorded with driver, passengers, and absences.",
       },
       {
-        title: "Section-based rhythm",
+        title: "Smart suggestions",
         description:
-          "A premium landing page needs clear transitions, uneven emphasis, and breathing room so the page feels complete instead of overframed.",
+          "The next driver is suggested from actual participation.",
       },
       {
-        title: "Content reuse",
+        title: "Flexible groups",
         description:
-          "Future repos should be able to swap labels, bullets, cards, and steps without rebuilding the layout each time.",
+          "Works for small or large teams with changing availability.",
       },
       {
-        title: "Text-heavy app support",
+        title: "Clear visibility",
         description:
-          "The system works for planners, builders, analyzers, and generators that rely more on clarity than visual spectacle.",
+          "See who has driven more, ridden more, or missed trips.",
       },
       {
-        title: "Rollout safety",
+        title: "Simple to use",
         description:
-          "The structure is opinionated enough to raise quality but small enough to adopt repo by repo during freeze without major layout rewrites.",
+          "No complex setup. Designed for repeated daily use.",
       },
     ],
   },
   workflow: {
     eyebrow: "How it works",
-    title: "How future apps should use it",
+    title: "How it works",
     lead:
-      "Keep the structure. Replace the content. That is the intended adoption model.",
+      "Start with the group, record the travel, and let the app keep the balance visible.",
     steps: [
       {
-        title: "Define the app promise",
+        title: "Start your group",
         description:
-          "Set the category label, page title, one-line value proposition, bullets, and the correct action labels for the app.",
+          "Create a group and add your members.",
       },
       {
-        title: "Populate the sections",
+        title: "Track your trips",
         description:
-          "Fill the features, pillars, workflow steps, and optional showcase block from the real implementation, not aspirational copy.",
+          "Log each day’s travel with driver, passengers, and absences.",
       },
       {
-        title: "Keep the CTA honest",
+        title: "Let the app balance",
         description:
-          "Use the final CTA to direct the user into the real workspace or a truthful secondary path such as templates, examples, or learn-more content.",
+          "Fairness and rotation update from the trips you record.",
       },
     ],
   },
   showcase: {
-    eyebrow: "Optional showcase",
-    title: "Use this block only when the app needs one extra proof point",
+    eyebrow: "Example week",
+    title: "See how a week looks",
     description:
-      "Some apps need one extra section to make the product feel concrete. It should add clarity, not another repeated feature grid.",
+      "A simple week shows how the driver changes as trips are logged and fairness updates.",
     bullets: [
-      "Good fit for builders, planners, and analyzers with structured output",
-      "Best used when the result is not obvious from the feature list alone",
-      "Optional by design so simpler apps can stay tighter",
+      "Mon -> Vinil drives",
+      "Tue -> Sasi drives",
+      "Wed -> Jiju drives (Vinil absent)",
+      "Thu -> Administrator drives",
+      "Fri -> Next driver adjusts based on missed rides",
     ],
-    calloutLabel: "Adoption rule",
-    calloutValue: "Use only when it adds clarity",
+    calloutLabel: "Weekly view",
+    calloutValue: "Fairness follows real trips",
   },
   finalCta: {
-    title: "Use this as the default landing baseline for future mini-apps",
+    title: "Start your car pool in minutes",
     description:
-      "The system is ready to be rolled out repo by repo across the READY apps without changing the broader Ansiversa architecture.",
+      "Create your group, log your first trip, and let the app handle the rotation.",
     primaryCta: {
       label: "Open Workspace",
       href: startHref,
     },
     secondaryCta: {
-      label: "See Workflow",
-      href: "#workflow",
+      label: "Back to Apps",
+      href: "/",
       variant: "ghost",
     },
   },
