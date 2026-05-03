@@ -171,6 +171,21 @@
   max-width: 100%;
 }
 
+.app-history-filter {
+  display: grid;
+  gap: 0.35rem;
+  max-width: 24rem;
+}
+
+.app-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-top: 0.25rem;
+}
+
 .app-checklist,
 .app-list-stack {
   display: flex;

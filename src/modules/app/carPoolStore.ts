@@ -42,6 +42,11 @@ export interface CarPoolTrip {
   updatedAt: Date;
   passengerCount?: number;
   absenteeCount?: number;
+  participants?: Array<{
+    memberId: string;
+    role: 'driver' | 'passenger';
+    attendanceStatus: 'present' | 'absent';
+  }>;
 }
 
 type FairnessStatus = "Driving more" | "Balanced" | "Receiving more";
@@ -102,6 +107,10 @@ export class CarPoolAppStore extends AvBaseStore {
   pendingDeleteGroupId: string | null = null;
   pendingRemoveMemberId: string | null = null;
   travellingMemberIds: string[] = [];
+  tripHistoryMemberFilter = "";
+  tripHistoryRoleFilter: "driver" | "passenger" | "absent" | "any" = "driver";
+  tripHistoryPage = 1;
+  tripHistoryPageSize = 10;
 
   // Form state
   createGroupForm = {
@@ -161,7 +170,14 @@ export class CarPoolAppStore extends AvBaseStore {
     const state = this.parseState(serializedState);
     this.currentUser = this.parseCurrentUser(state.currentUser);
     this.selectedGroupId = typeof state.groupId === "string" ? state.groupId : null;
+    this.selectedGroupDetail = {
+      group: state.groupDetail?.group ?? null,
+      members: Array.isArray(state.groupDetail?.members) ? state.groupDetail.members : [],
+    };
     this.tripHistory = Array.isArray(state.tripHistory) ? state.tripHistory : [];
+    this.tripHistoryMemberFilter = "";
+    this.tripHistoryRoleFilter = "driver";
+    this.tripHistoryPage = 1;
     this.currentView = "trip-history";
     this.error = typeof state.loadError === "string" && state.loadError.length > 0 ? state.loadError : null;
   }
@@ -761,6 +777,64 @@ export class CarPoolAppStore extends AvBaseStore {
     } finally {
       this.isLoading = false;
     }
+  }
+
+  getFilteredTripHistory() {
+    if (!this.tripHistoryMemberFilter) return this.tripHistory;
+    return this.tripHistory.filter((trip) => {
+      const participants = Array.isArray(trip.participants) ? trip.participants : [];
+      return participants.some((participant) => {
+        if (participant.memberId !== this.tripHistoryMemberFilter) return false;
+        if (this.tripHistoryRoleFilter === "any") return true;
+        if (this.tripHistoryRoleFilter === "absent") return participant.attendanceStatus === "absent";
+        return participant.role === this.tripHistoryRoleFilter && participant.attendanceStatus === "present";
+      });
+    });
+  }
+
+  getTripHistoryVisibleCount() {
+    return this.getFilteredTripHistory().length;
+  }
+
+  onTripHistoryMemberFilterChange() {
+    if (!this.tripHistoryMemberFilter) {
+      this.tripHistoryRoleFilter = "driver";
+    }
+    this.tripHistoryPage = 1;
+  }
+
+  onTripHistoryRoleFilterChange() {
+    this.tripHistoryPage = 1;
+  }
+
+  getPaginatedTripHistory() {
+    const filteredTrips = this.getFilteredTripHistory();
+    const pageCount = this.getTripHistoryPageCount();
+    if (this.tripHistoryPage > pageCount) {
+      this.tripHistoryPage = pageCount;
+    }
+    const start = (this.tripHistoryPage - 1) * this.tripHistoryPageSize;
+    return filteredTrips.slice(start, start + this.tripHistoryPageSize);
+  }
+
+  getTripHistoryPageCount() {
+    return Math.max(1, Math.ceil(this.getFilteredTripHistory().length / this.tripHistoryPageSize));
+  }
+
+  nextTripHistoryPage() {
+    this.tripHistoryPage = Math.min(this.getTripHistoryPageCount(), this.tripHistoryPage + 1);
+  }
+
+  previousTripHistoryPage() {
+    this.tripHistoryPage = Math.max(1, this.tripHistoryPage - 1);
+  }
+
+  getTripHistoryPageLabel() {
+    const total = this.getFilteredTripHistory().length;
+    if (total === 0) return "No trips";
+    const start = ((this.tripHistoryPage - 1) * this.tripHistoryPageSize) + 1;
+    const end = Math.min(total, start + this.tripHistoryPageSize - 1);
+    return `Showing ${start}-${end} of ${total}`;
   }
 
   async loadTripDetail(tripId: string) {

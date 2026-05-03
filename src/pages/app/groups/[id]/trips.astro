@@ -1,5 +1,5 @@
 ---
-import { AvButton, AvCard, AvContainer, AvEmptyState } from "@ansiversa/components";
+import { AvButton, AvCard, AvContainer, AvEmptyState, AvIcon, AvSelect } from "@ansiversa/components";
 import { server } from "../../../../actions";
 import AppShell from "../../../../layouts/AppShell.astro";
 import type { CarPoolTrip } from "../../../../modules/app/carPoolStore";
@@ -15,7 +15,7 @@ let loadError: string | null = null;
 
 try {
   const [tripResult, detailResult] = await Promise.all([
-    Astro.callAction(server.listTripHistory, { groupId: id }),
+    Astro.callAction(server.listTripHistory, { groupId: id, limit: 500 }),
     Astro.callAction(server.loadGroupDetail, { groupId: id }),
   ]);
 
@@ -24,7 +24,12 @@ try {
   }
 
   tripHistory = (tripResult?.data?.trips as any) || [];
-  groupDetail = detailResult?.data?.group || null;
+  groupDetail = detailResult?.data?.group
+    ? {
+        group: detailResult.data.group,
+        members: detailResult.data.members || [],
+      }
+    : null;
 } catch (error) {
   console.error("Error loading trip history:", error);
   loadError = error instanceof Error ? error.message : String(error);
@@ -36,11 +41,12 @@ if (loadError && !groupDetail) {
 
 const initialState = {
   groupId: id,
+  groupDetail,
   tripHistory,
   loadError,
 };
 
-const groupName = groupDetail?.name ?? "Group";
+const groupName = groupDetail?.group?.name ?? "Group";
 ---
 
 <AppShell title={`Trips – ${groupName}`} description="Review the Car Pool trip log inside the protected workspace.">
@@ -76,7 +82,39 @@ const groupName = groupDetail?.name ?? "Group";
               <p class="av-kicker">Workspace</p>
               <h2 class="av-card-heading">Logged trips</h2>
             </div>
-            <p class="av-text-soft"><span x-text="tripHistory.length"></span> total</p>
+            <p class="av-text-soft">
+              <span x-text="getTripHistoryVisibleCount()"></span>
+              <span x-show="tripHistoryMemberFilter"> filtered</span>
+              <span x-show="!tripHistoryMemberFilter"> total</span>
+            </p>
+          </div>
+
+          <div class="app-history-filter">
+            <AvSelect
+              label="Filter by member"
+              name="trip-history-member-filter"
+              x-model="tripHistoryMemberFilter"
+              @change="onTripHistoryMemberFilterChange()"
+            >
+              <option value="">All members</option>
+              <template x-for="member in selectedGroupDetail.members" :key="`${member.id}-history-filter`">
+                <option :value="member.id" x-text="member.name"></option>
+              </template>
+            </AvSelect>
+            <template x-if="tripHistoryMemberFilter">
+              <AvSelect
+                label="Role"
+                name="trip-history-role-filter"
+                x-model="tripHistoryRoleFilter"
+                @change="onTripHistoryRoleFilterChange()"
+              >
+                <option value="driver">Driver</option>
+                <option value="passenger">Passenger</option>
+                <option value="absent">Absent</option>
+                <option value="any">Any role</option>
+              </AvSelect>
+            </template>
+            <p class="av-text-soft">Filter trips where the selected member was driver, passenger, or absent.</p>
           </div>
 
           <template x-if="tripHistory.length === 0">
@@ -86,9 +124,16 @@ const groupName = groupDetail?.name ?? "Group";
             />
           </template>
 
-          <template x-if="tripHistory.length > 0">
+          <template x-if="tripHistory.length > 0 && getFilteredTripHistory().length === 0">
+            <AvEmptyState
+              headline="No trips found for this member."
+              description="Choose All members to return to the full trip history."
+            />
+          </template>
+
+          <template x-if="getFilteredTripHistory().length > 0">
             <div class="app-list-stack">
-              <template x-for="trip in tripHistory" :key="trip.id">
+              <template x-for="trip in getPaginatedTripHistory()" :key="trip.id">
                 <div class="app-list-row">
                   <div class="av-auth-stack-xxs">
                     <span class="app-list-title" x-text="formatDate(trip.tripDate)"></span>
@@ -97,9 +142,45 @@ const groupName = groupDetail?.name ?? "Group";
                       · Absent: <span x-text="trip.absenteeCount || 0"></span>
                     </p>
                   </div>
-                  <AvButton type="button" size="sm" variant="ghost" @click="navigateToTripDetail(trip.id)">View</AvButton>
+                  <AvButton
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="app-icon-button"
+                    aria-label="View trip"
+                    title="View trip"
+                    @click="navigateToTripDetail(trip.id)"
+                  >
+                    <AvIcon name="eye" size="sm" />
+                  </AvButton>
                 </div>
               </template>
+            </div>
+          </template>
+
+          <template x-if="getFilteredTripHistory().length > tripHistoryPageSize">
+            <div class="app-pagination" aria-label="Trip history pagination">
+              <p class="av-text-soft" x-text="getTripHistoryPageLabel()"></p>
+              <div class="av-row-wrap">
+                <AvButton
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  @click="previousTripHistoryPage()"
+                  :disabled="tripHistoryPage <= 1"
+                >
+                  Previous
+                </AvButton>
+                <AvButton
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  @click="nextTripHistoryPage()"
+                  :disabled="tripHistoryPage >= getTripHistoryPageCount()"
+                >
+                  Next
+                </AvButton>
+              </div>
             </div>
           </template>
         </AvCard>

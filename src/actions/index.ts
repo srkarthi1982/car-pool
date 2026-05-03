@@ -818,7 +818,12 @@ export const server = {
           return {
             ...trip,
             passengerCount,
-            absenteeCount
+            absenteeCount,
+            participants: participants.map((participant) => ({
+              memberId: participant.memberId,
+              role: participant.role,
+              attendanceStatus: participant.attendanceStatus,
+            })),
           };
         })
       );
